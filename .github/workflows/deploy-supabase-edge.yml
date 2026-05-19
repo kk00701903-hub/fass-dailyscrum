@@ -55,6 +55,14 @@ jobs:
             echo "::error::Missing secrets for Edge deploy:$missing"
             exit 1
           fi
+          case "$SUPABASE_ACCESS_TOKEN" in
+            sbp_*) ;;
+            *)
+              echo "::error::SUPABASE_ACCESS_TOKEN 형식 오류: 'sbp_' 로 시작하는 Account Access Token 이어야 합니다."
+              echo "::error::anon key · service_role key · JWT 가 아닙니다. Supabase → Account Settings → Access Tokens 에서 생성하세요."
+              exit 1
+              ;;
+          esac
           echo "Deploy secrets present."
 
       - name: Set Edge Function secrets
