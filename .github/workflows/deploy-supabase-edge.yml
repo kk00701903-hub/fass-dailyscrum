@@ -81,8 +81,22 @@ jobs:
             exit 1
           fi
           echo "SUPABASE_ACCESS_TOKEN prefix=${TOKEN:0:8}... length=${#TOKEN}"
-          echo "SUPABASE_ACCESS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          {
+            echo "SUPABASE_ACCESS_TOKEN<<EOF"
+            echo "$TOKEN"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
           echo "Deploy secrets present."
+
+      - name: Supabase CLI login
+        run: |
+          set -e
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN 이 비어 있습니다."
+            exit 1
+          fi
+          echo "Login with token prefix=${SUPABASE_ACCESS_TOKEN:0:8}... length=${#SUPABASE_ACCESS_TOKEN}"
+          supabase login --token "$SUPABASE_ACCESS_TOKEN"
 
       - name: Set Edge Function secrets
         env:
@@ -90,6 +104,7 @@ jobs:
         run: |
           # SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY 는 Edge 런타임이 자동 주입 — secrets set 시 오류 남
           set -e
+          export SUPABASE_ACCESS_TOKEN
           if [ -n "$JIRA_STORY_POINTS_FIELD" ]; then
             supabase secrets set --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}" \
               JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
@@ -107,6 +122,8 @@ jobs:
 
       - name: Deploy Edge Functions
         run: |
+          set -e
+          export SUPABASE_ACCESS_TOKEN
           supabase functions deploy sync-jira-all jira-proxy sync-jira-sprints \
             --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
 
