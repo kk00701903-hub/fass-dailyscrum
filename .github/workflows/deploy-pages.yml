@@ -1,8 +1,12 @@
 # FASS Scrum → GitHub Pages (https://kk00701903-hub.github.io/fass-dailyscrum/)
 #
-# 저장소 Settings → Pages → Build and deployment → Source: "GitHub Actions"
+# 저장소 Settings → Pages → Build and deployment:
+#   Source: "Deploy from a branch"
+#   Branch: gh-pages  /  Folder: / (root)
 #
-# 빌드 시 앱 연동용 Secrets (Repository secrets, VITE_ 접두사):
+# (github-pages Environment의 master 배포 제한이 있으면 Actions 방식 대신 gh-pages 브랜치 push 사용)
+#
+# 빌드용 Secrets (Repository secrets):
 #   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
 #   VITE_JIRA_BASE_URL, VITE_JIRA_EMAIL, VITE_JIRA_API_TOKEN, VITE_JIRA_BOARD_ID
 # 선택: VITE_GRAFANA_DASHBOARD_EMBED_URL, VITE_JIRA_STORY_POINTS_FIELD
@@ -15,16 +19,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,18 +53,9 @@ jobs:
           VITE_GRAFANA_DASHBOARD_EMBED_URL: ${{ secrets.VITE_GRAFANA_DASHBOARD_EMBED_URL }}
           VITE_JIRA_STORY_POINTS_FIELD: ${{ secrets.VITE_JIRA_STORY_POINTS_FIELD }}
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
