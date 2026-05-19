@@ -1,16 +1,9 @@
 # FASS Scrum → GitHub Pages (https://kk00701903-hub.github.io/fass-dailyscrum/)
 #
-# ★ 반드시 확인 (Actions 성공해도 사이트가 예전 화면이면 이 설정 때문):
-#   Settings → Pages → Build and deployment
-#   Source: "Deploy from a branch"  ← "GitHub Actions" 아님!
-#   Branch: gh-pages  /  Folder: / (root)
+# gh-pages 브랜치에 빌드 결과를 push한 뒤, Pages 소스를 gh-pages 브랜치로 자동 전환합니다.
+# (소스가 "GitHub Actions"로 남아 있으면 예전 배포본이 계속 보입니다.)
 #
-# "GitHub Actions" 소스면 gh-pages 브랜치 push가 무시되고, 예전 배포본이 계속 보입니다.
-#
-# 빌드용 Secrets (Repository secrets):
-#   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
-#   VITE_JIRA_BASE_URL, VITE_JIRA_EMAIL, VITE_JIRA_API_TOKEN, VITE_JIRA_BOARD_ID
-# 선택: VITE_GRAFANA_DASHBOARD_EMBED_URL, VITE_JIRA_STORY_POINTS_FIELD
+# 빌드용 Secrets: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_JIRA_* 등
 
 name: Deploy GitHub Pages
 
@@ -21,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  pages: write
 
 concurrency:
   group: pages-${{ github.ref }}
@@ -60,3 +54,17 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
           publish_branch: gh-pages
+          force_orphan: true
+
+      - name: Set Pages source to gh-pages branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            await github.rest.repos.updateInformationAboutPagesSite({
+              owner,
+              repo,
+              build_type: "legacy",
+              source: { branch: "gh-pages", path: "/" },
+            });
+            core.info("GitHub Pages source → branch gh-pages / (root)");
