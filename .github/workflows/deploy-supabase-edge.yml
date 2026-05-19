@@ -3,8 +3,8 @@
 # 필수 Secrets (jira-sync.yml 과 동일 + 배포용):
 #   SUPABASE_ACCESS_TOKEN   Supabase Dashboard → Account → Access Tokens
 #   SUPABASE_PROJECT_REF    예: cvnyayoddcxhigjtyuqb
-#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 #   JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BOARD_ID
+#   (SUPABASE_URL · SERVICE_ROLE_KEY 는 Edge 에 자동 주입 — secrets set 불필요)
 
 name: Deploy Supabase Edge
 
@@ -60,16 +60,24 @@ jobs:
       - name: Set Edge Function secrets
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          JIRA_STORY_POINTS_FIELD: ${{ secrets.JIRA_STORY_POINTS_FIELD }}
         run: |
-          supabase secrets set \
-            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}" \
-            SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
-            SUPABASE_SERVICE_ROLE_KEY="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
-            JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
-            JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
-            JIRA_BOARD_ID="${{ secrets.JIRA_BOARD_ID }}" \
-            JIRA_STORY_POINTS_FIELD="${{ secrets.JIRA_STORY_POINTS_FIELD }}"
+          # SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY 는 Edge 런타임이 자동 주입 — secrets set 시 오류 남
+          set -e
+          if [ -n "$JIRA_STORY_POINTS_FIELD" ]; then
+            supabase secrets set --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}" \
+              JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
+              JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
+              JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
+              JIRA_BOARD_ID="${{ secrets.JIRA_BOARD_ID }}" \
+              JIRA_STORY_POINTS_FIELD="$JIRA_STORY_POINTS_FIELD"
+          else
+            supabase secrets set --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}" \
+              JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
+              JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
+              JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
+              JIRA_BOARD_ID="${{ secrets.JIRA_BOARD_ID }}"
+          fi
 
       - name: Deploy Edge Functions
         env:
