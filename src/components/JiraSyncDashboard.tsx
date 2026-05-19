@@ -279,7 +279,7 @@ export function JiraSyncDashboard() {
             전체 교체
             {import.meta.env.DEV
               ? " (개발: Vite JIRA 프록시)"
-              : " (운영: Edge Function 또는 VITE_JIRA_* 브라우저 동기화)"}
+              : " (운영: Supabase Edge — sync-jira-all / jira-proxy)"}
           </p>
           {header.error && <p className="text-xs text-red-600">{header.error}</p>}
         </div>

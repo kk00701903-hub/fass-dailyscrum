@@ -1,4 +1,5 @@
 import { runBrowserJiraFullSync } from "@/lib/jira-browser-sync";
+import { invokeProductionJiraSync } from "@/lib/jira-edge-sync";
 import { canSyncJiraFromBrowser } from "@/lib/jira-env";
 import { isJiraLiveFetchAvailable } from "@/lib/jira-client";
 import { supabase } from "@/lib/supabaseClient";
@@ -83,33 +84,28 @@ export async function invokeJiraSprintSync(): Promise<{
     return runBrowserJiraFullSync();
   }
 
-  const { data, error } = await supabase.functions.invoke("sync-jira-sprints", { body: {} });
-
-  if (error) {
-    const msg = error.message || String(error);
-    const edgeMissing = /failed to send|not found|404|non-2xx/i.test(msg);
-    if (edgeMissing && canSyncJiraFromBrowser()) {
-      const browser = await runBrowserJiraFullSync();
-      if (browser.ok) return browser;
-      const corsHint = /failed to fetch|network|cors/i.test(browser.error ?? "")
-        ? " JIRA Cloud는 브라우저 CORS 제한이 있을 수 있습니다. Supabase Edge Function 배포: `npx supabase functions deploy sync-jira-sprints`"
-        : "";
-      return { ok: false, error: `${browser.error ?? msg}${corsHint}` };
-    }
-    const hint = edgeMissing
-      ? " Supabase에 `npx supabase functions deploy sync-jira-sprints` 로 배포하거나 GitHub Actions JIRA Sync 를 실행하세요."
-      : "";
-    return { ok: false, error: `${msg}${hint}` };
+  const edge = await invokeProductionJiraSync();
+  if (edge.ok) {
+    return { ok: true, count: edge.count, tasksCount: edge.tasksCount };
   }
 
-  const payload = data as { ok?: boolean; error?: string; count?: number } | null;
-  if (payload?.error) {
-    return { ok: false, error: payload.error, count: payload.count };
+  const edgeMissing = /not found|404|non-2xx|Edge Function not found/i.test(edge.error ?? "");
+  if (edgeMissing && canSyncJiraFromBrowser()) {
+    const browser = await runBrowserJiraFullSync();
+    if (browser.ok) return browser;
+    return {
+      ok: false,
+      error:
+        `${browser.error ?? edge.error ?? "동기화 실패"}` +
+        " — Supabase Edge Function 배포: Actions「Deploy Supabase Edge」또는 `npx supabase functions deploy sync-jira-all jira-proxy`",
+    };
   }
 
   return {
-    ok: payload?.ok !== false,
-    count: typeof payload?.count === "number" ? payload.count : undefined,
+    ok: false,
+    error:
+      (edge.error ?? "JIRA 동기화에 실패했습니다.") +
+      " — GitHub Actions「Deploy Supabase Edge」실행 또는 일일 배치 JIRA Sync 를 사용하세요.",
   };
 }
 

@@ -3,3 +3,9 @@ verify_jwt = false
 
 [functions.sync-jira-sprints]
 verify_jwt = false
+
+[functions.sync-jira-all]
+verify_jwt = false
+
+[functions.jira-proxy]
+verify_jwt = false

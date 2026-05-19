@@ -1,0 +1,84 @@
+# Supabase Edge Functions — GitHub Pages 수동 JIRA 동기화용
+#
+# 필수 Secrets (jira-sync.yml 과 동일 + 배포용):
+#   SUPABASE_ACCESS_TOKEN   Supabase Dashboard → Account → Access Tokens
+#   SUPABASE_PROJECT_REF    예: cvnyayoddcxhigjtyuqb
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+#   JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_BOARD_ID
+
+name: Deploy Supabase Edge
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - "supabase/functions/**"
+      - ".github/workflows/deploy-supabase-edge.yml"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy-edge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Validate deploy secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BOARD_ID: ${{ secrets.JIRA_BOARD_ID }}
+        run: |
+          missing=""
+          for key in SUPABASE_ACCESS_TOKEN SUPABASE_PROJECT_REF SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN JIRA_BOARD_ID; do
+            eval "val=\$$key"
+            if [ -z "$val" ]; then
+              missing="$missing $key"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets for Edge deploy:$missing"
+            exit 1
+          fi
+          echo "Deploy secrets present."
+
+      - name: Set Edge Function secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase secrets set \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}" \
+            SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            SUPABASE_SERVICE_ROLE_KEY="${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
+            JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
+            JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
+            JIRA_BOARD_ID="${{ secrets.JIRA_BOARD_ID }}" \
+            JIRA_STORY_POINTS_FIELD="${{ secrets.JIRA_STORY_POINTS_FIELD }}"
+
+      - name: Deploy Edge Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy sync-jira-all jira-proxy sync-jira-sprints \
+            --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+
+      - name: Summary
+        run: |
+          echo "Deployed: sync-jira-all, jira-proxy, sync-jira-sprints"
+          echo "GitHub Pages 수동 동기화 버튼이 Edge Function 을 호출합니다."

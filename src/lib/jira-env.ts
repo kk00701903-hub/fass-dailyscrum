@@ -32,13 +32,15 @@ export function getJiraStoryPointsFieldIdFromEnv(): string {
   return v || "customfield_10016";
 }
 
-/** 브라우저에서 JIRA API → Supabase 동기화 가능 여부 (빌드 시 VITE_JIRA_* 주입 필요) */
+/** 브라우저에서 JIRA → Supabase 동기화 가능 여부 */
 export function canSyncJiraFromBrowser(): boolean {
-  return (
-    isSupabaseConfigured() &&
-    Boolean(getJiraBaseUrlFromEnv()) &&
-    Boolean(getJiraEmailFromEnv()) &&
-    hasJiraApiTokenFromEnv() &&
-    /^\d+$/.test(getJiraBoardIdFromEnv())
-  );
+  if (!isSupabaseConfigured()) return false;
+  if (!/^\d+$/.test(getJiraBoardIdFromEnv())) return false;
+
+  if (import.meta.env.DEV) {
+    return Boolean(getJiraBaseUrlFromEnv()) && Boolean(getJiraEmailFromEnv()) && hasJiraApiTokenFromEnv();
+  }
+
+  // GitHub Pages: JIRA 인증은 Supabase Edge(jira-proxy) — 보드 ID만 빌드에 필요
+  return true;
 }

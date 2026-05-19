@@ -20,6 +20,9 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -30,23 +33,37 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build
-        run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_JIRA_BASE_URL: ${{ secrets.VITE_JIRA_BASE_URL }}
-          VITE_JIRA_EMAIL: ${{ secrets.VITE_JIRA_EMAIL }}
-          VITE_JIRA_API_TOKEN: ${{ secrets.VITE_JIRA_API_TOKEN }}
-          VITE_JIRA_BOARD_ID: ${{ secrets.VITE_JIRA_BOARD_ID }}
-          VITE_GRAFANA_DASHBOARD_EMBED_URL: ${{ secrets.VITE_GRAFANA_DASHBOARD_EMBED_URL }}
-          VITE_JIRA_STORY_POINTS_FIELD: ${{ secrets.VITE_JIRA_STORY_POINTS_FIELD }}
+        run: |
+          VITE_SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}"
+          if [ -z "$VITE_SUPABASE_URL" ]; then
+            VITE_SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
+          fi
+          export VITE_SUPABASE_URL
+          export VITE_SUPABASE_ANON_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}"
+          export VITE_JIRA_BASE_URL="${{ secrets.VITE_JIRA_BASE_URL }}"
+          export VITE_JIRA_EMAIL="${{ secrets.VITE_JIRA_EMAIL }}"
+          export VITE_JIRA_API_TOKEN="${{ secrets.VITE_JIRA_API_TOKEN }}"
+          export VITE_JIRA_BOARD_ID="${{ secrets.VITE_JIRA_BOARD_ID }}"
+          export VITE_GRAFANA_DASHBOARD_EMBED_URL="${{ secrets.VITE_GRAFANA_DASHBOARD_EMBED_URL }}"
+          export VITE_JIRA_STORY_POINTS_FIELD="${{ secrets.VITE_JIRA_STORY_POINTS_FIELD }}"
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::VITE_SUPABASE_URL(또는 SUPABASE_URL) 과 VITE_SUPABASE_ANON_KEY Secret 이 필요합니다."
+            exit 1
+          fi
+          case "$VITE_SUPABASE_URL" in
+            *xxxx*|*/rest/v1*)
+              echo "::error::VITE_SUPABASE_URL 형식 오류: https://프로젝트ref.supabase.co 만 (xxxx placeholder /rest/v1 금지)"
+              exit 1
+              ;;
+          esac
+          npm run build
 
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
