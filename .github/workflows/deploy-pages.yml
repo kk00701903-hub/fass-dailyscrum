@@ -47,10 +47,8 @@ jobs:
           fi
           export VITE_SUPABASE_URL
           export VITE_SUPABASE_ANON_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}"
-          export VITE_JIRA_BASE_URL="${{ secrets.VITE_JIRA_BASE_URL }}"
-          export VITE_JIRA_EMAIL="${{ secrets.VITE_JIRA_EMAIL }}"
-          export VITE_JIRA_API_TOKEN="${{ secrets.VITE_JIRA_API_TOKEN }}"
           export VITE_JIRA_BOARD_ID="${{ secrets.VITE_JIRA_BOARD_ID }}"
+          # JIRA 토큰은 Edge Function 에만 — Pages 번들에 넣으면 push protection 에 걸림
           export VITE_GRAFANA_DASHBOARD_EMBED_URL="${{ secrets.VITE_GRAFANA_DASHBOARD_EMBED_URL }}"
           export VITE_JIRA_STORY_POINTS_FIELD="${{ secrets.VITE_JIRA_STORY_POINTS_FIELD }}"
           if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
