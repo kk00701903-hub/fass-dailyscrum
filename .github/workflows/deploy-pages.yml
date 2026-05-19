@@ -1,10 +1,11 @@
 # FASS Scrum → GitHub Pages (https://kk00701903-hub.github.io/fass-dailyscrum/)
 #
-# 저장소 Settings → Pages → Build and deployment:
-#   Source: "Deploy from a branch"
+# ★ 반드시 확인 (Actions 성공해도 사이트가 예전 화면이면 이 설정 때문):
+#   Settings → Pages → Build and deployment
+#   Source: "Deploy from a branch"  ← "GitHub Actions" 아님!
 #   Branch: gh-pages  /  Folder: / (root)
 #
-# (github-pages Environment의 master 배포 제한이 있으면 Actions 방식 대신 gh-pages 브랜치 push 사용)
+# "GitHub Actions" 소스면 gh-pages 브랜치 push가 무시되고, 예전 배포본이 계속 보입니다.
 #
 # 빌드용 Secrets (Repository secrets):
 #   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
