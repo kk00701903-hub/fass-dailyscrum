@@ -1,9 +1,20 @@
-import { getJiraBaseUrlFromEnv } from "@/lib/jira-env";
+import {
+  getJiraApiTokenFromEnv,
+  getJiraBaseUrlFromEnv,
+  getJiraEmailFromEnv,
+} from "@/lib/jira-env";
 import { buildJiraClientHeaders } from "@/lib/jira-proxy-shared";
 
-/** 개발 서버 + Vite 프록시가 있을 때만 JIRA API 호출 가능 (프로덕션 정적 호스팅에서는 목업). */
+/** 개발: Vite JIRA 프록시 사용 가능 */
 export function isJiraLiveFetchAvailable(): boolean {
   return Boolean(import.meta.env.DEV && getJiraBaseUrlFromEnv());
+}
+
+function jiraBasicAuthHeader(): string | null {
+  const email = getJiraEmailFromEnv();
+  const token = getJiraApiTokenFromEnv();
+  if (!email || !token) return null;
+  return `Basic ${btoa(`${email}:${token}`)}`;
 }
 
 /** 예: `/fass-dailyscrum/api/jira` — trailing slash 없음 */
@@ -20,19 +31,29 @@ export function getJiraProxyPrefix(): string | null {
  * - X-Atlassian-Token: no-check (모든 메서드)
  */
 export async function jiraFetch<T>(apiPath: string, init: RequestInit = {}): Promise<T> {
-  const prefix = getJiraProxyPrefix();
-  if (!prefix) {
-    throw new Error("JIRA live fetch는 개발 모드와 VITE_JIRA_BASE_URL 이 있을 때만 사용할 수 있습니다.");
-  }
   const path = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
-  const url = `${prefix}${path}`;
   const method = (init.method ?? "GET").toUpperCase();
 
+  let url: string;
   const mergedExtra = { ...(init.headers as Record<string, string> | undefined) };
   const headers = buildJiraClientHeaders({
     contentTypeJson: init.body != null,
     extra: mergedExtra,
   });
+
+  const prefix = getJiraProxyPrefix();
+  if (prefix) {
+    url = `${prefix}${path}`;
+  } else if (!import.meta.env.DEV && getJiraBaseUrlFromEnv()) {
+    const auth = jiraBasicAuthHeader();
+    if (!auth) {
+      throw new Error("VITE_JIRA_EMAIL · VITE_JIRA_API_TOKEN 이 필요합니다.");
+    }
+    url = `${getJiraBaseUrlFromEnv().replace(/\/+$/, "")}${path}`;
+    headers.Authorization = auth;
+  } else {
+    throw new Error("JIRA live fetch는 VITE_JIRA_BASE_URL 이 있을 때만 사용할 수 있습니다.");
+  }
 
   const res = await fetch(url, {
     ...init,

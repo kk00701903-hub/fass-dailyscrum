@@ -277,7 +277,9 @@ export function JiraSyncDashboard() {
             자동 인터페이스: 매일 {String(JIRA_SYNC_SCHEDULE_HOUR).padStart(2, "0")}:00 ({tzLabel}) · GitHub
             Actions · 수동: <strong className="font-medium text-slate-700">Jira 동기화</strong> → JIRA API 조회 후 DB
             전체 교체
-            {import.meta.env.DEV ? " (개발: Vite JIRA 프록시)" : " (Edge Function)"}
+            {import.meta.env.DEV
+              ? " (개발: Vite JIRA 프록시)"
+              : " (운영: Edge Function 또는 VITE_JIRA_* 브라우저 동기화)"}
           </p>
           {header.error && <p className="text-xs text-red-600">{header.error}</p>}
         </div>

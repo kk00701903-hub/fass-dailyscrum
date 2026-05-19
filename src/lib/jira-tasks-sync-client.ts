@@ -1,5 +1,5 @@
-import { isJiraLiveFetchAvailable, jiraFetch } from "@/lib/jira-client";
-import { getJiraBoardIdFromEnv, getJiraStoryPointsFieldIdFromEnv } from "@/lib/jira-env";
+import { jiraFetch } from "@/lib/jira-client";
+import { canSyncJiraFromBrowser, getJiraBoardIdFromEnv, getJiraStoryPointsFieldIdFromEnv } from "@/lib/jira-env";
 import {
   jiraIssueFieldsQuery,
   mapIssueToDbRow,
@@ -21,8 +21,8 @@ function sprintIdFromJira(sp: JiraSprintApiValue): string {
 
 /** 보드 스프린트별 이슈·서브태스크 조회 (active/future + 최근 closed 3개) */
 export async function fetchTasksFromJiraViaProxy(): Promise<JiraTaskDbRow[]> {
-  if (!isJiraLiveFetchAvailable()) {
-    throw new Error("JIRA 프록시를 사용할 수 없습니다. npm run dev 와 VITE_JIRA_* 를 확인하세요.");
+  if (!canSyncJiraFromBrowser()) {
+    throw new Error("JIRA 동기화 설정을 확인하세요. VITE_JIRA_* · VITE_SUPABASE_* 환경 변수가 필요합니다.");
   }
 
   const boardId = getJiraBoardIdFromEnv();

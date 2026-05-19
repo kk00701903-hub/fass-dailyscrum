@@ -1,5 +1,5 @@
-import { isJiraLiveFetchAvailable, jiraFetch } from "@/lib/jira-client";
-import { getJiraBoardIdFromEnv } from "@/lib/jira-env";
+import { jiraFetch } from "@/lib/jira-client";
+import { canSyncJiraFromBrowser, getJiraBoardIdFromEnv } from "@/lib/jira-env";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -40,8 +40,8 @@ function mapSprintRow(sp: JiraSprintApiValue): JiraSprintUpsertRow {
 
 /** 개발 모드: Vite JIRA 프록시로 스프린트 전체 조회 */
 export async function fetchSprintsFromJiraViaProxy(): Promise<JiraSprintUpsertRow[]> {
-  if (!isJiraLiveFetchAvailable()) {
-    throw new Error("JIRA 프록시를 사용할 수 없습니다. npm run dev 와 VITE_JIRA_* 환경 변수를 확인하세요.");
+  if (!canSyncJiraFromBrowser()) {
+    throw new Error("JIRA 동기화 설정을 확인하세요. VITE_JIRA_* · VITE_SUPABASE_* 환경 변수가 필요합니다.");
   }
 
   const boardId = getJiraBoardIdFromEnv();

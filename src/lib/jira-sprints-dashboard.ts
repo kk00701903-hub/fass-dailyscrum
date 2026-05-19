@@ -1,6 +1,6 @@
+import { runBrowserJiraFullSync } from "@/lib/jira-browser-sync";
+import { canSyncJiraFromBrowser } from "@/lib/jira-env";
 import { isJiraLiveFetchAvailable } from "@/lib/jira-client";
-import { syncJiraSprintsFromBrowser } from "@/lib/jira-sprint-sync-client";
-import { syncJiraTasksFromBrowser } from "@/lib/jira-tasks-sync-client";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -80,25 +80,25 @@ export async function invokeJiraSprintSync(): Promise<{
   }
 
   if (import.meta.env.DEV && isJiraLiveFetchAvailable()) {
-    const sprints = await syncJiraSprintsFromBrowser();
-    if (!sprints.ok) {
-      return { ok: false, error: sprints.error ?? "스프린트 동기화에 실패했습니다." };
-    }
-    const tasks = await syncJiraTasksFromBrowser();
-    if (!tasks.ok) {
-      return { ok: false, count: sprints.count, error: tasks.error ?? "이슈 동기화에 실패했습니다." };
-    }
-    return { ok: true, count: sprints.count, tasksCount: tasks.count };
+    return runBrowserJiraFullSync();
   }
 
   const { data, error } = await supabase.functions.invoke("sync-jira-sprints", { body: {} });
 
   if (error) {
     const msg = error.message || String(error);
-    const hint =
-      /failed to send|not found|404|non-2xx/i.test(msg)
-        ? " Supabase에 `supabase functions deploy sync-jira-sprints` 로 배포하거나, 터미널에서 `npm run sync:jira` 를 실행하세요."
+    const edgeMissing = /failed to send|not found|404|non-2xx/i.test(msg);
+    if (edgeMissing && canSyncJiraFromBrowser()) {
+      const browser = await runBrowserJiraFullSync();
+      if (browser.ok) return browser;
+      const corsHint = /failed to fetch|network|cors/i.test(browser.error ?? "")
+        ? " JIRA Cloud는 브라우저 CORS 제한이 있을 수 있습니다. Supabase Edge Function 배포: `npx supabase functions deploy sync-jira-sprints`"
         : "";
+      return { ok: false, error: `${browser.error ?? msg}${corsHint}` };
+    }
+    const hint = edgeMissing
+      ? " Supabase에 `npx supabase functions deploy sync-jira-sprints` 로 배포하거나 GitHub Actions JIRA Sync 를 실행하세요."
+      : "";
     return { ok: false, error: `${msg}${hint}` };
   }
 
