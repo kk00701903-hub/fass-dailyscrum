@@ -1,0 +1,79 @@
+# JIRA → Supabase 일일 배치 (KST 09:00 = UTC 00:00)
+#
+# GitHub: Repository → Settings → Secrets and variables → Actions
+#
+# 필수 Secrets:
+#   SUPABASE_URL              https://xxxx.supabase.co  (/rest/v1 붙이지 않음)
+#   SUPABASE_SERVICE_ROLE_KEY service_role 키
+#   JIRA_BASE_URL             https://your-org.atlassian.net
+#   JIRA_EMAIL                Atlassian 계정 이메일
+#   JIRA_API_TOKEN            Atlassian API 토큰
+#   JIRA_BOARD_ID             스크럼 보드 ID (숫자, 예: 1)
+#
+# 선택:
+#   JIRA_TEST_TLS_INSECURE    사내 SSL 검사 시 "1"
+#   JIRA_STORY_POINTS_FIELD   customfield_10016 등 (미설정 시 스크립트 기본값)
+
+name: JIRA Sync (Sprints + Tasks)
+
+on:
+  schedule:
+    # 매일 09:00 KST (GitHub cron = UTC)
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: jira-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync-jira:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      JIRA_BOARD_ID: ${{ secrets.JIRA_BOARD_ID }}
+      JIRA_TEST_TLS_INSECURE: ${{ secrets.JIRA_TEST_TLS_INSECURE }}
+      JIRA_STORY_POINTS_FIELD: ${{ secrets.JIRA_STORY_POINTS_FIELD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate secrets
+        run: |
+          missing=""
+          for key in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN JIRA_BOARD_ID; do
+            eval "val=\$$key"
+            if [ -z "$val" ]; then
+              missing="$missing $key"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing GitHub Actions secrets:$missing"
+            exit 1
+          fi
+          echo "Required secrets present."
+
+      - name: Sync JIRA sprints and tasks to Supabase
+        run: npm run sync:jira:all
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "JIRA → Supabase sync completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "Tables: jira_sprints, jira_tasks"

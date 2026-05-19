@@ -1,0 +1,5 @@
+[functions.jira-sync]
+verify_jwt = false
+
+[functions.sync-jira-sprints]
+verify_jwt = false
