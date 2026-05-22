@@ -46,13 +46,17 @@ jobs:
             VITE_SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
           fi
           export VITE_SUPABASE_URL
-          export VITE_SUPABASE_ANON_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}"
+          VITE_SUPABASE_ANON_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}"
+          if [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            VITE_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+          fi
+          export VITE_SUPABASE_ANON_KEY
           export VITE_JIRA_BOARD_ID="${{ secrets.VITE_JIRA_BOARD_ID }}"
           # JIRA 토큰은 Edge Function 에만 — Pages 번들에 넣으면 push protection 에 걸림
           export VITE_GRAFANA_DASHBOARD_EMBED_URL="${{ secrets.VITE_GRAFANA_DASHBOARD_EMBED_URL }}"
           export VITE_JIRA_STORY_POINTS_FIELD="${{ secrets.VITE_JIRA_STORY_POINTS_FIELD }}"
           if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
-            echo "::error::VITE_SUPABASE_URL(또는 SUPABASE_URL) 과 VITE_SUPABASE_ANON_KEY Secret 이 필요합니다."
+            echo "::error::SUPABASE_URL 및 VITE_SUPABASE_ANON_KEY(또는 SUPABASE_ANON_KEY) Secret 이 필요합니다."
             exit 1
           fi
           case "$VITE_SUPABASE_URL" in
