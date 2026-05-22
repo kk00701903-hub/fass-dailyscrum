@@ -1,29 +1,42 @@
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Layout from "@/components/Layout";
-import Dashboard from "@/pages/Dashboard";
+import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
+import FindId from "@/pages/FindId";
+import FindPassword from "@/pages/FindPassword";
 import JiraSync from "@/pages/JiraSync";
+import JiraWbs from "@/pages/JiraWbs";
+import JiraDependencies from "@/pages/JiraDependencies";
 import DailyScrum from "@/pages/DailyScrum";
 import DailyScrumHistory from "@/pages/DailyScrumHistory";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
-import UiPreview from "@/pages/UiPreview";
 import { ROUTES } from "@/lib/index";
 import { Toaster } from "@/components/ui/toaster";
 
 export default function App() {
   return (
     <MotionConfig reducedMotion="user">
+      {/* GitHub Pages: Vite `base`만 쓰고 Hash 경로는 `#/scrum` 형태. HashRouter basename 은 라우트 불일치·빈 화면 유발 */}
       <HashRouter>
         <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route path={ROUTES.JIRA_SYNC} element={<JiraSync />} />
-            <Route path={ROUTES.DAILY_SCRUM} element={<DailyScrum />} />
-            <Route path={ROUTES.SCRUM_HISTORY} element={<DailyScrumHistory />} />
-            <Route path={ROUTES.ANALYTICS} element={<Analytics />} />
-            <Route path={ROUTES.SETTINGS} element={<Settings />} />
-            <Route path={ROUTES.UI_PREVIEW} element={<UiPreview />} />
+          <Route path={ROUTES.LOGIN} element={<Login />} />
+          <Route path={ROUTES.SIGNUP} element={<Signup />} />
+          <Route path={ROUTES.FIND_ID} element={<FindId />} />
+          <Route path={ROUTES.FIND_PASSWORD} element={<FindPassword />} />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Navigate to={ROUTES.DAILY_SCRUM} replace />} />
+              <Route path={ROUTES.JIRA_SYNC} element={<JiraSync />} />
+              <Route path={ROUTES.JIRA_WBS} element={<JiraWbs />} />
+              <Route path={ROUTES.JIRA_DEPENDENCIES} element={<JiraDependencies />} />
+              <Route path={ROUTES.DAILY_SCRUM} element={<DailyScrum />} />
+              <Route path={ROUTES.SCRUM_HISTORY} element={<DailyScrumHistory />} />
+              <Route path={ROUTES.ANALYTICS} element={<Analytics />} />
+              <Route path={ROUTES.SETTINGS} element={<Settings />} />
+            </Route>
           </Route>
         </Routes>
         <Toaster />

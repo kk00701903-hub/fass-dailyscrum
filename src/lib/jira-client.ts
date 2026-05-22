@@ -1,3 +1,5 @@
+import { ApiError } from "@/lib/errors/api-error";
+import { jiraAuthFailureHint } from "@/lib/jira-basic-auth";
 import { getJiraBaseUrlFromEnv } from "@/lib/jira-env";
 import { buildJiraClientHeaders } from "@/lib/jira-proxy-shared";
 import { supabase } from "@/lib/supabaseClient";
@@ -104,9 +106,21 @@ export async function jiraFetch<T>(apiPath: string, init: RequestInit = {}): Pro
     if (res.status === 403 && parts.some((p) => /xsrf/i.test(p))) {
       parts.push("npm run dev 재시작 후에도 동일하면 Vite 프록시·jira-client 최신 코드인지 확인");
     }
+    if (res.status === 401) {
+      parts.push(
+        jiraAuthFailureHint({
+          devProxy: import.meta.env.DEV,
+          edgeProxy: !import.meta.env.DEV && isSupabaseConfigured(),
+        })
+      );
+    }
 
     const msg = parts.length ? parts.join(" · ") : "알 수 없는 오류";
-    throw new Error(`JIRA HTTP ${res.status}: ${msg}`);
+    throw await ApiError.fromResponse(res, {
+      method,
+      parsedBody: body,
+      fallbackMessage: `JIRA HTTP ${res.status}: ${msg}`,
+    });
   }
 
   return body as T;

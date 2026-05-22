@@ -111,7 +111,10 @@ export async function fetchTasksFromJiraApi(options: {
       const page = await httpsGetJson<{ issues?: JiraIssueRaw[]; isLast?: boolean }>(url, headers, tls);
       const issues = page.issues ?? [];
       for (const issue of issues) {
-        byId.set(issue.id, mapIssueToDbRow(issue, sprintId, options.storyField, syncedAt));
+        byId.set(
+          issue.id,
+          mapIssueToDbRow(issue, sprintId, options.storyField, syncedAt, options.startField ?? "")
+        );
       }
       if (page.isLast === true || issues.length < maxResults) break;
       startAt += maxResults;
@@ -126,22 +129,15 @@ export async function replaceJiraTasksInSupabase(
   rows: JiraTaskDbRow[],
   options: { supabaseUrl: string; supabaseKey: string }
 ): Promise<number> {
+  const { upsertJiraTasksInDb } = await import("../lib/jira-tasks-upsert.ts");
   const supabase = createClient(options.supabaseUrl, options.supabaseKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { error: deleteError } = await supabase.from("jira_tasks").delete().not("issue_key", "is", null);
-  if (deleteError) throw new Error(`Supabase clear failed: ${deleteError.message}`);
-
-  if (rows.length === 0) return 0;
-
-  const chunkSize = 100;
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const { error } = await supabase.from("jira_tasks").insert(rows.slice(i, i + chunkSize));
-    if (error) throw new Error(`Supabase insert failed: ${error.message}`);
-  }
-
-  return rows.length;
+  const { upserted } = await upsertJiraTasksInDb(supabase, rows, {
+    logPrefix: "[syncJiraTasks]",
+  });
+  return upserted;
 }
 
 export async function runJiraTasksSync(): Promise<{ count: number; subtasks: number }> {
@@ -174,7 +170,9 @@ export async function runJiraTasksSync(): Promise<{ count: number; subtasks: num
   });
 
   const subtasks = rows.filter((r) => r.is_subtask).length;
-  console.log(`[syncJiraTasks] Replacing jira_tasks (${rows.length} issues, ${subtasks} subtasks) …`);
+  console.log(
+    `[syncJiraTasks] Upserting jira_tasks (${rows.length} issues, ${subtasks} subtasks, onConflict=jira_issue_id) …`
+  );
   const count = await replaceJiraTasksInSupabase(rows, { supabaseUrl, supabaseKey });
   console.log(`[syncJiraTasks] Done. ${count} row(s).`);
   return { count, subtasks };

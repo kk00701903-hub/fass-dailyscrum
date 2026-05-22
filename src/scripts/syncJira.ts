@@ -7,19 +7,14 @@
 import https from "node:https";
 import { createClient } from "@supabase/supabase-js";
 import { loadEnvLocal } from "./loadEnvLocal.js";
+import {
+  mapApiSprintToUpsertRow,
+  type JiraSprintApiValue,
+  type JiraSprintUpsertRow,
+} from "../lib/jira-sprint-map.js";
+import { insertJiraSprintsReplace } from "../lib/jira-sprints-db.ts";
 
-export interface JiraSprintUpsertRow {
-  sprint_name: string;
-  status: string;
-  remaining_days: number;
-}
-
-interface JiraSprintApiValue {
-  id: number;
-  name: string;
-  state: string;
-  endDate?: string;
-}
+export type { JiraSprintUpsertRow };
 
 function env(key: string, fallbacks: string[] = []): string {
   const keys = [key, ...fallbacks];
@@ -28,20 +23,6 @@ function env(key: string, fallbacks: string[] = []): string {
     if (v) return v;
   }
   return "";
-}
-
-function statusLabel(state: string): string {
-  if (state === "active") return "진행 중";
-  if (state === "closed") return "종료";
-  if (state === "future") return "예정";
-  return state;
-}
-
-function remainingDays(endDate?: string): number {
-  if (!endDate) return 0;
-  const end = new Date(`${endDate.slice(0, 10)}T12:00:00`);
-  const now = new Date();
-  return Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 86_400_000));
 }
 
 function httpsGetJson<T>(url: string, headers: Record<string, string>, tlsInsecure: boolean): Promise<T> {
@@ -84,14 +65,6 @@ function httpsGetJson<T>(url: string, headers: Record<string, string>, tlsInsecu
     req.on("error", reject);
     req.end();
   });
-}
-
-function mapSprintRow(sp: JiraSprintApiValue): JiraSprintUpsertRow {
-  return {
-    sprint_name: sp.name,
-    status: statusLabel(sp.state),
-    remaining_days: remainingDays(sp.endDate),
-  };
 }
 
 /** JIRA REST에서 보드 스프린트 전체 조회 (페이지네이션) */
@@ -137,7 +110,7 @@ export async function fetchSprintsFromJiraApi(options: {
   const byName = new Map<string, JiraSprintUpsertRow>();
   for (const sp of all) {
     if (!sp.name?.trim()) continue;
-    byName.set(sp.name, mapSprintRow(sp));
+    byName.set(sp.name, mapApiSprintToUpsertRow(sp));
   }
   return [...byName.values()].sort((a, b) => a.sprint_name.localeCompare(b.sprint_name, "ko"));
 }
@@ -164,27 +137,17 @@ export async function replaceJiraSprintsInSupabase(
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const now = new Date().toISOString();
-
-  const { error: deleteError } = await supabase.from("jira_sprints").delete().not("sprint_name", "is", null);
-  if (deleteError) throw new Error(`Supabase clear failed: ${deleteError.message}`);
-
-  if (rows.length === 0) {
-    console.log("[syncJira] No sprints from JIRA — table cleared.");
-    return 0;
+  const { count, mode } = await insertJiraSprintsReplace(supabase, rows);
+  if (mode === "basic" && count > 0) {
+    console.warn(
+      "[syncJira] jira_sprints: 확장 컬럼(jira_sprint_id, start_date, end_date) 없음 — 기본 컬럼만 저장. " +
+        "supabase/migrations/20260522120000_jira_sprints_schedule.sql 을 SQL Editor에서 실행하세요."
+    );
   }
-
-  const payload = rows.map((r) => ({
-    sprint_name: r.sprint_name,
-    status: r.status,
-    remaining_days: r.remaining_days,
-    updated_at: now,
-  }));
-
-  const { error: insertError } = await supabase.from("jira_sprints").insert(payload);
-  if (insertError) throw new Error(`Supabase insert failed: ${insertError.message}`);
-
-  return rows.length;
+  if (count === 0) {
+    console.log("[syncJira] No sprints from JIRA — table cleared.");
+  }
+  return count;
 }
 
 /** @deprecated replaceJiraSprintsInSupabase 사용 */

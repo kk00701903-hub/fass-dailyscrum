@@ -1,3 +1,7 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+
 # --- Dependencies ---
 node_modules/
 jspm_packages/
@@ -98,4 +102,7 @@ Thumbs.db
 
 # --- Uploaded Files ---
 uploaded_files/
+
+# --- Local UI reference extract (not for commit) ---
+_ref-smart-scrum/
 

@@ -1,17 +1,17 @@
 import type { JiraTask, Priority, ScrumEntry, Sprint, TaskStatus, TeamMember } from "@/lib/index";
 import { TEAM_MEMBERS } from "@/lib/index";
-import { normalizeSprintState } from "@/lib/sprint-status";
+import { jiraSprintRowToSprint } from "@/lib/sprint-status";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase/client";
 
 interface SprintRow {
   id: string;
-  name: string | null;
-  sprint_name: string | null;
-  state: string | null;
-  status: string | null;
-  start_date: string;
-  end_date: string;
-  goal: string;
+  sprint_name: string;
+  status: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  jira_sprint_id?: string | null;
+  remaining_days?: number | null;
+  updated_at?: string | null;
 }
 
 interface TaskRow {
@@ -62,15 +62,19 @@ function rowToAssignee(row: TaskRow): TeamMember {
 }
 
 function rowToSprint(row: SprintRow): Sprint {
-  const statusRaw = row.status?.trim() || row.state?.trim() || "";
-  return {
+  return jiraSprintRowToSprint({
     id: row.id,
-    name: row.sprint_name?.trim() || row.name?.trim() || row.id,
-    state: normalizeSprintState(statusRaw),
-    startDate: row.start_date ?? "—",
-    endDate: row.end_date ?? "—",
-    goal: row.goal ?? "",
-  };
+    jira_sprint_id: row.jira_sprint_id,
+    sprint_name: row.sprint_name,
+    status: row.status,
+    start_date: row.start_date,
+    end_date: row.end_date,
+  });
+}
+
+/** DB 행 → JiraTask (통합테스트·검증 스크립트용) */
+export function jiraTaskFromDbRow(row: TaskRow): JiraTask {
+  return rowToTask(row);
 }
 
 function rowToTask(row: TaskRow): JiraTask {
@@ -135,8 +139,8 @@ export async function invokeJiraSync(): Promise<{
 export async function fetchSprintsFromDb(): Promise<Sprint[]> {
   const { data, error } = await getSupabase()
     .from("jira_sprints")
-    .select("id, name, sprint_name, state, status, start_date, end_date, goal")
-    .order("synced_at", { ascending: false });
+    .select("id, sprint_name, status, start_date, end_date, jira_sprint_id, remaining_days, updated_at")
+    .order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
   return (data as SprintRow[] ?? []).map(rowToSprint);
 }

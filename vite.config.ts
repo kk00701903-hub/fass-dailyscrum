@@ -7,6 +7,7 @@ import nodePath from 'node:path';
 import { componentTagger } from 'lovable-tagger';
 import path from "path";
 import https from "node:https";
+import { buildJiraBasicAuthBase64 } from "./src/lib/jira-basic-auth";
 import { applyJiraProxyRequestHeaders, isJiraProxyTlsInsecureFromEnv } from "./src/lib/jira-proxy-shared";
 
 import { parse } from '@babel/parser';
@@ -225,7 +226,7 @@ function buildJiraDevProxy(env: Record<string, string>, mode: string): Record<st
   }
   const baseNorm = APP_BASE.endsWith("/") ? APP_BASE : `${APP_BASE}/`;
   const prefix = `${baseNorm}api/jira`.replace(/\/{2,}/g, "/");
-  const auth = Buffer.from(`${email}:${token}`, "utf8").toString("base64");
+  const auth = buildJiraBasicAuthBase64(email, token);
   /** 사내 SSL 검사 — rejectUnauthorized: false (http-proxy `secure: false` + https.Agent) */
   const tlsInsecure = isJiraProxyTlsInsecureFromEnv(env);
   const secure = !tlsInsecure;
@@ -272,6 +273,19 @@ function buildJiraDevProxy(env: Record<string, string>, mode: string): Record<st
   };
 }
 
+function devUrlHintPlugin(): Plugin {
+  return {
+    name: "dev-url-hint",
+    configureServer(server) {
+      server.httpServer?.once("listening", () => {
+        const local = server.resolvedUrls?.local?.[0] ?? "http://localhost:5173/";
+        const appUrl = `${local.replace(/\/?$/, "/")}${APP_BASE.replace(/^\//, "")}`;
+        console.log(`\n  ➜  ScrumRadar: ${appUrl}\n`);
+      });
+    },
+  };
+}
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -285,9 +299,14 @@ export default defineConfig(({ mode }) => {
       open: mode === "development" ? `${APP_BASE}` : false,
       ...(jiraProxy ? { proxy: jiraProxy } : {}),
     },
+    preview: {
+      port: 4173,
+      open: `${APP_BASE}`,
+    },
     plugins: [
       tailwindcss(),
       react(),
+      mode === "development" && devUrlHintPlugin(),
       mode === 'development' &&
       componentTagger(),
       cdnPrefixImages(),

@@ -1,4 +1,4 @@
-import axios from "axios";
+import { http } from "@/lib/api/axios-instance";
 
 export interface User {
   id: number;
@@ -13,13 +13,13 @@ export interface CreateUserRequest {
 
 // GET 请求示例
 export const getUser = async (id: number): Promise<User> => {
-  const response = await axios.get<User>(`https://api.example.com/api/users/${id}`);
+  const response = await http.get<User>(`https://api.example.com/api/users/${id}`);
   return response.data;
 };
 
 // POST 请求示例
 export const createUser = async (data: CreateUserRequest): Promise<User> => {
-  const response = await axios.post<User>("https://api.example.com/api/users", data);
+  const response = await http.post<User>("https://api.example.com/api/users", data);
   return response.data;
 };
 

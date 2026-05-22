@@ -1,0 +1,630 @@
+/* JIRA WBS — gantt-task-react 시인성 · 헤더 통일 · 마일스톤 오버레이 */
+
+.wbs-milestone-overlay text {
+  paint-order: stroke fill;
+  stroke: var(--card, #fff);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.dark .wbs-milestone-overlay text {
+  stroke: var(--card, #0f172a);
+}
+
+.wbs-gantt-root {
+  --wbs-milestone-label-band: 32px;
+  --wbs-gantt-calendar-header-height: 68px;
+  --wbs-gantt-scrollbar: 14px;
+  --wbs-gantt-header-height: 92px;
+  --wbs-gantt-header-half: 34px;
+  --wbs-gantt-row-height: 48px;
+  --wbs-week-col: 58px;
+  --wbs-text: #334155;
+  --wbs-text-header: #334155;
+  --wbs-border: #cbd5e1;
+  --wbs-border-strong: #94a3b8;
+  --wbs-header-bg: #f8fafc;
+  --wbs-row-stripe: rgba(148, 163, 184, 0.06);
+  --wbs-grid-v: rgba(148, 163, 184, 0.22);
+  --wbs-grid-h: rgba(148, 163, 184, 0.14);
+  --wbs-scrollbar-thumb: #64748b;
+  --wbs-scrollbar-track: #e2e8f0;
+  --gantt-font: var(--font-sans, Inter, "Noto Sans KR", system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--gantt-font);
+}
+
+.dark .wbs-gantt-root {
+  --wbs-text: #e2e8f0;
+  --wbs-text-header: #e2e8f0;
+  --wbs-border: #475569;
+  --wbs-border-strong: #64748b;
+  --wbs-header-bg: #1e293b;
+  --wbs-row-stripe: rgba(100, 116, 139, 0.12);
+  --wbs-grid-v: rgba(100, 116, 139, 0.28);
+  --wbs-grid-h: rgba(100, 116, 139, 0.18);
+  --wbs-scrollbar-thumb: #94a3b8;
+  --wbs-scrollbar-track: #1e293b;
+}
+
+.wbs-gantt-root > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.wbs-gantt-root > div > ._3eULf {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.wbs-gantt-root ._3eULf {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+/* ── 좌측 메타 + 우측 타임라인: 헤더·행 높이 · 가로 비율 ── */
+.wbs-gantt-root ._3eULf {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 통합 헤더 가로선 — 마일스톤/년월(24px)·년월/주차(58px)·헤더하단(92px) */
+.wbs-gantt-root ._3eULf::before,
+.wbs-gantt-root ._3eULf::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-bottom: 1px solid var(--wbs-border, #cbd5e1);
+  pointer-events: none;
+  z-index: 26;
+}
+
+.wbs-gantt-root ._3eULf::before {
+  top: calc(var(--wbs-milestone-label-band, 24px) + var(--wbs-gantt-header-half, 34px) - 1px);
+}
+
+.wbs-gantt-root ._3eULf::after {
+  top: calc(
+    var(--wbs-milestone-label-band, 24px) + var(--wbs-gantt-calendar-header-height, 68px) - 1px
+  );
+}
+
+.wbs-gantt-root ._3eULf > div:first-child {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 var(--wbs-list-min-width, 528px);
+  width: var(--wbs-list-min-width, 528px);
+  max-width: var(--wbs-list-min-width, 528px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--card, #fff);
+  box-shadow: none;
+  border-right: none;
+}
+
+/* 좌·우 스플릿 — 헤더~바디 전 구간 단일 세로선 */
+.wbs-gantt-root ._3eULf > div:first-child::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: #e2e8f0;
+  z-index: 27;
+  pointer-events: none;
+}
+
+.dark .wbs-gantt-root ._3eULf > div:first-child::after {
+  background: var(--wbs-border, #475569);
+}
+
+.wbs-gantt-list-header {
+  box-sizing: border-box;
+  flex: 0 0 var(--wbs-gantt-header-height);
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  height: var(--wbs-gantt-header-height);
+  min-height: var(--wbs-gantt-header-height);
+  max-height: var(--wbs-gantt-header-height);
+  overflow: hidden;
+}
+
+.wbs-gantt-list-header {
+  background: var(--wbs-header-bg);
+  color: var(--wbs-text-header);
+}
+
+.wbs-gantt-list-header-milestone {
+  box-sizing: border-box;
+  flex: 0 0 var(--wbs-milestone-label-band, 24px);
+  height: var(--wbs-milestone-label-band, 24px);
+  min-height: var(--wbs-milestone-label-band, 24px);
+  max-height: var(--wbs-milestone-label-band, 24px);
+  border-bottom: 1px solid var(--wbs-border, #cbd5e1);
+  background: var(--wbs-header-bg);
+}
+
+.wbs-gantt-list-header-tier {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.wbs-gantt-list-header-tier--month,
+.wbs-gantt-list-header-tier--week {
+  background: var(--wbs-header-bg);
+}
+
+.wbs-gantt-list-header-cell,
+.wbs-gantt-list-body-cell {
+  box-sizing: border-box;
+  border-right: 1px solid var(--wbs-border, #cbd5e1);
+  margin: 0;
+}
+
+.wbs-gantt-list-header-cell:last-child,
+.wbs-gantt-list-body-cell:last-child {
+  border-right: none;
+}
+
+.wbs-gantt-list-col-assignee {
+  flex-shrink: 0;
+}
+
+.wbs-gantt-list-header-tier--week > .wbs-gantt-list-col-tree,
+.wbs-gantt-list-row > .wbs-gantt-list-col-tree {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 스프린트/태스크 본문 — 헤더는 중앙, 데이터는 좌측 정렬 + depth 들여쓰기 */
+.wbs-gantt-list-row > .wbs-gantt-list-col-tree {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.wbs-gantt-list-body {
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* 좌측 메타 본문 — 세로 동기화(스크롤바는 우측 트랙에 표시) */
+.wbs-gantt-root ._3eULf > div:first-child ._2B2zv {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.wbs-gantt-root ._3eULf > div:first-child ._2B2zv::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.wbs-gantt-list-row {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  height: var(--wbs-gantt-row-height);
+  min-height: var(--wbs-gantt-row-height);
+  max-height: var(--wbs-gantt-row-height);
+}
+
+/* 우측: 달력 헤더 SVG = headerHeight (월+주 2행) */
+.wbs-gantt-root ._CZjuD {
+  display: flex;
+  flex-direction: column;
+  font-size: 0;
+  line-height: 0;
+}
+
+.wbs-gantt-root ._CZjuD > svg:first-of-type {
+  display: block;
+  flex: 0 0 var(--wbs-gantt-calendar-header-height, 68px);
+  height: var(--wbs-gantt-calendar-header-height, 68px) !important;
+  min-height: var(--wbs-gantt-calendar-header-height, 68px);
+  max-height: var(--wbs-gantt-calendar-header-height, 68px);
+}
+
+/* 우측 타임라인 그리드 본문 — 세로 스크롤(리스트·VerticalScroll과 동기화) */
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._2B2zv {
+  flex: 1 1 auto !important;
+  flex-shrink: 1 !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._2B2zv > svg {
+  display: block;
+}
+
+/* 타임라인 — 좌측 마일스톤 띠(24px) 만큼 상단 패딩 → 헤더 베이스라인 정렬 */
+.wbs-gantt-root ._3eULf > div:nth-child(2) {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding-top: var(--wbs-milestone-label-band, 24px);
+  margin-left: 0;
+}
+
+.wbs-gantt-root ._3eULf > div:nth-child(2) {
+  position: relative;
+  z-index: 1;
+}
+
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._CZjuD {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
+}
+
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._CZjuD::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._CZjuD > svg:first-of-type,
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._CZjuD > ._2B2zv {
+  flex-shrink: 0 !important;
+}
+
+.wbs-gantt-root ._3eULf > div:nth-child(2) ._2B2zv {
+  position: relative;
+  z-index: 0;
+}
+
+/* 커스텀 2단 달력 헤더 — 네이티브 SVG 라벨(숨김) 위에 HTML 레이어 */
+.wbs-gantt-root--week ._3eULf > div:nth-child(2) ._CZjuD > svg:first-of-type {
+  position: relative;
+  z-index: 0;
+}
+
+/* 커스텀 2단 달력 헤더 — 좌측 티어·::_3eULf 가로선과 동일 Y */
+.wbs-gantt-month-header-layer,
+.wbs-gantt-week-header-layer {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  height: var(--wbs-gantt-header-half, 34px) !important;
+  border-bottom: none;
+  background: var(--wbs-header-bg);
+  box-shadow: none;
+}
+
+.wbs-gantt-month-header-layer {
+  z-index: 18;
+  top: var(--wbs-milestone-label-band, 24px) !important;
+}
+
+.wbs-gantt-week-header-layer {
+  z-index: 17;
+  top: calc(var(--wbs-milestone-label-band, 24px) + var(--wbs-gantt-header-half, 34px)) !important;
+}
+
+/* 마일스톤 세로 점선 — 헤더 배경 위에 표시 (월 z-18, 주 z-17 보다 위) */
+.wbs-milestone-guide-lines {
+  z-index: 19;
+  overflow: visible !important;
+  pointer-events: none;
+}
+
+.wbs-milestone-guide-lines svg {
+  overflow: visible;
+}
+
+.wbs-milestone-guide-line {
+  pointer-events: none;
+}
+
+/* 마일스톤 라벨 — 달력 헤더와 분리된 상단 띠 */
+.wbs-milestone-label-band {
+  box-sizing: border-box;
+}
+
+.wbs-milestone-label {
+  paint-order: stroke fill;
+  text-shadow: 0 0 2px var(--wbs-header-bg), 0 0 4px var(--wbs-header-bg);
+}
+
+/* ── 타임라인 헤더 (월/주) — 좌측 테이블과 동일 톤 ── */
+.wbs-gantt-root ._35nLX {
+  fill: var(--wbs-header-bg) !important;
+  stroke: var(--wbs-border) !important;
+  stroke-width: 1px !important;
+}
+
+.wbs-gantt-root ._3_ygE {
+  border-color: var(--wbs-border) !important;
+  border-left: none !important;
+  background: var(--wbs-header-bg) !important;
+}
+
+.wbs-gantt-root ._WuQ0f {
+  background: var(--wbs-header-bg) !important;
+  border-bottom: none !important;
+  box-sizing: border-box !important;
+  min-height: var(--wbs-gantt-calendar-header-height, 68px) !important;
+  height: var(--wbs-gantt-calendar-header-height, 68px) !important;
+  max-height: var(--wbs-gantt-calendar-header-height, 68px) !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.wbs-gantt-root ._2eZzQ {
+  border-right-color: var(--wbs-border) !important;
+}
+
+.wbs-gantt-root ._1rLuZ {
+  stroke: var(--wbs-border) !important;
+}
+
+/* 달력 헤더 배경 rect — SVG 뷰포트와 동일 높이 */
+.wbs-gantt-root ._35nLX {
+  height: var(--wbs-gantt-calendar-header-height, 68px) !important;
+}
+
+.wbs-gantt-root ._9w8d5 {
+  fill: var(--wbs-text-header) !important;
+  font-weight: 600 !important;
+  font-size: 10px !important;
+  line-height: 1.2 !important;
+}
+
+/* Week 뷰: ISO 주차(W24) — 커스텀 0W/1W 오버레이로 대체 */
+.wbs-gantt-root--week ._9w8d5 {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Week 뷰: 네이티브 월 라벨 — 커스텀 월 헤더 오버레이로 대체 */
+.wbs-gantt-root--week ._2q1Kt {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* 프로젝트 월·주 헤더 오버레이 — 열 폭 = columnWidth × 주 수 */
+.wbs-gantt-month-header-track,
+.wbs-gantt-week-header-track {
+  box-sizing: border-box;
+}
+
+.wbs-gantt-month-header-track > div,
+.wbs-gantt-month-header-cell {
+  box-sizing: border-box;
+  text-align: center;
+  padding: 0 2px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.wbs-gantt-month-header-cell span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 프로젝트 주차 헤더 — 열 폭 = --wbs-week-col, flex 중앙 정렬 */
+.wbs-gantt-week-header-track {
+  box-sizing: border-box;
+}
+
+.wbs-gantt-week-header-track > div,
+.wbs-gantt-week-header-cell {
+  box-sizing: border-box;
+  text-align: center;
+  padding: 0;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.wbs-gantt-week-header-cell span {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wbs-gantt-root--month ._9w8d5 {
+  text-anchor: middle !important;
+}
+
+.wbs-gantt-root ._2q1Kt {
+  fill: var(--wbs-text-header) !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  line-height: 1.25 !important;
+}
+
+/* 그리드 본문 — 행 높이 = rowHeight, 좌측 리스트 행과 동일 */
+.wbs-gantt-root ._2dZTy {
+  fill: transparent !important;
+  height: var(--wbs-gantt-row-height, 48px) !important;
+}
+
+.wbs-gantt-root ._2dZTy:nth-child(even) {
+  fill: var(--wbs-row-stripe) !important;
+}
+
+.wbs-gantt-root ._3rUKi {
+  stroke: var(--wbs-grid-h) !important;
+  stroke-width: 1px !important;
+}
+
+.wbs-gantt-root ._RuwuK {
+  stroke: var(--wbs-grid-v) !important;
+  stroke-width: 1px !important;
+}
+
+.wbs-gantt-root ._3ZbQT {
+  fill: transparent !important;
+  stroke: none !important;
+}
+
+.wbs-gantt-root ._1nBOt {
+  stroke: color-mix(in srgb, #2563eb 55%, transparent) !important;
+  stroke-width: 1.5px !important;
+}
+
+/* 타임라인 종료 패드 — 좌측 목록·막대 비표시 (범위 확장만) */
+.wbs-gantt-root .wbs-range-pad-end-row,
+.wbs-gantt-root .wbs-range-pad-end-bar {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* 태스크·스프린트 막대 — 평면, 대비 강화 */
+.wbs-gantt-root .bar rect,
+.wbs-gantt-root ._2RbVy {
+  stroke: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+}
+
+.wbs-gantt-root ._1KJ6x rect,
+.wbs-gantt-root ._2RbVy rect {
+  stroke: none !important;
+}
+
+/* project(스프린트) 막대 입체 레이어 — gantt-task-react 기본 상단 rect·polygon */
+.wbs-gantt-root ._1KJ6x > rect:nth-child(3),
+.wbs-gantt-root ._1KJ6x ._2pZMF,
+.wbs-gantt-root ._1KJ6x polygon {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.wbs-gantt-root ._3zRJQ {
+  fill: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 10px !important;
+}
+
+.wbs-gantt-root ._3KcaM {
+  fill: var(--wbs-text) !important;
+  font-weight: 600 !important;
+  font-size: 10px !important;
+}
+
+/* 막대 밖 라벨 — 라이브러리가 긴 name을 우측에 그리는 경우 숨김 (좌측 목록에 표시) */
+.wbs-gantt-root ._3KcaM:empty,
+.wbs-gantt-root ._3zRJQ:empty {
+  display: none;
+}
+
+.wbs-gantt-root ._3eULf,
+.wbs-gantt-root ._1eT-t {
+  font-family: var(--gantt-font) !important;
+  font-size: 11px !important;
+}
+
+/* 하단 가로 스크롤 — 라이브러리 margin-left(리스트 너비) 유지, 가로폭은 루트 기준 100% */
+.wbs-gantt-root > div > ._2k9Ys {
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  height: var(--wbs-gantt-scrollbar) !important;
+  min-height: var(--wbs-gantt-scrollbar) !important;
+  max-height: var(--wbs-gantt-scrollbar) !important;
+  background: var(--wbs-header-bg) !important;
+  border-top: 1px solid var(--wbs-border) !important;
+  pointer-events: auto !important;
+  touch-action: pan-x;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: auto;
+  scrollbar-color: var(--wbs-scrollbar-thumb) var(--wbs-scrollbar-track);
+}
+
+.wbs-gantt-root > div > ._2k9Ys > ._19jgW,
+.wbs-gantt-root > div > ._2k9Ys > div {
+  flex-shrink: 0;
+  min-width: max-content;
+}
+
+.wbs-gantt-root ._2k9Ys::-webkit-scrollbar {
+  height: var(--wbs-gantt-scrollbar);
+}
+
+.wbs-gantt-root ._2k9Ys::-webkit-scrollbar-track {
+  background: var(--wbs-scrollbar-track);
+}
+
+.wbs-gantt-root ._2k9Ys::-webkit-scrollbar-thumb {
+  background: var(--wbs-scrollbar-thumb);
+  border-radius: 7px;
+  border: 3px solid var(--wbs-scrollbar-track);
+  min-width: 48px;
+}
+
+/* 타임라인 세로 스크롤 트랙(라이브러리 VerticalScroll) — 헤더 높이(92px)에 맞춤 */
+.wbs-gantt-root ._3eULf > ._1eT-t {
+  flex-shrink: 0 !important;
+  margin-top: var(--wbs-gantt-header-height, 92px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  pointer-events: auto !important;
+  z-index: 5;
+  scrollbar-width: auto;
+  scrollbar-color: var(--wbs-scrollbar-thumb) var(--wbs-scrollbar-track);
+  overscroll-behavior: contain;
+}
+
+.wbs-gantt-root ._3eULf > ._1eT-t::-webkit-scrollbar {
+  width: 10px;
+}
+
+.wbs-gantt-root ._3eULf > ._1eT-t::-webkit-scrollbar-thumb {
+  background: var(--wbs-scrollbar-thumb);
+  border-radius: 6px;
+  border: 2px solid var(--wbs-scrollbar-track);
+}

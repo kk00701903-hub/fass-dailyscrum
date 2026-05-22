@@ -11,10 +11,9 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   fetchJiraSprintsFromDb,
-  invokeJiraSprintSync,
   subscribeJiraSprints,
   type JiraSprintRow,
 } from "@/lib/jira-sprints-dashboard";
@@ -24,8 +23,7 @@ import {
   JIRA_SYNC_SCHEDULE_HOUR,
   JIRA_SYNC_TIMEZONE,
 } from "@/lib/jira-sync-schedule";
-import { sprintStatusBadge, ui } from "@/lib/untitled-ui";
-import { Button } from "@/components/ui/button";
+import { sprintStatusBadge, ui } from "@/lib/design-system";
 import { cn } from "@/lib/utils";
 
 type StatusKind = "active" | "closed" | "future" | "other";
@@ -135,11 +133,11 @@ const columns: ColumnDef<SprintGridRow>[] = [
   },
 ];
 
-export function JiraSyncDashboard() {
-  const hydrateFromSupabase = useJiraSyncStore((s) => s.hydrateFromSupabase);
+export function JiraSyncDashboard({ embedded = false }: { embedded?: boolean }) {
+  const storeSyncing = useJiraSyncStore((s) => s.syncing);
+  const lastJiraError = useJiraSyncStore((s) => s.lastJiraError);
   const [rows, setRows] = useState<JiraSprintRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [header, setHeader] = useState<InterfaceHeaderState>({
     lastInterfaceAt: null,
     success: null,
@@ -147,7 +145,7 @@ export function JiraSyncDashboard() {
   });
 
   const configured = isSupabaseConfigured();
-  const busy = loading || refreshing;
+  const busy = loading || storeSyncing;
 
   const gridData = useMemo(() => toGridRows(rows), [rows]);
 
@@ -195,132 +193,98 @@ export function JiraSyncDashboard() {
     });
   }, [configured, loadFromDb]);
 
-  const handleManualSync = async () => {
-    if (!configured || busy) return;
-    setRefreshing(true);
-    setHeader((prev) => ({ ...prev, error: null }));
-    try {
-      const syncResult = await invokeJiraSprintSync();
-      if (!syncResult.ok) {
-        setHeader((prev) => ({
-          ...prev,
-          success: false,
-          error: syncResult.error ?? "JIRA 동기화에 실패했습니다.",
-        }));
-        return;
-      }
-
-      const data = await fetchJiraSprintsFromDb();
-      setRows(data);
-      const latest = latestRowUpdatedAt(data);
-      setHeader({
-        lastInterfaceAt: latest ? formatKstDateTime(latest) : formatKstDateTime(new Date()),
-        success: true,
-        error: null,
-      });
-      void hydrateFromSupabase();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setHeader((prev) => ({
-        ...prev,
-        success: false,
-        error: message,
-      }));
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  useEffect(() => {
+    if (storeSyncing || !lastJiraError) return;
+    setHeader((prev) => ({ ...prev, success: false, error: lastJiraError }));
+  }, [storeSyncing, lastJiraError]);
 
   const tzLabel = JIRA_SYNC_TIMEZONE === "Asia/Seoul" ? "KST" : JIRA_SYNC_TIMEZONE;
 
+  const interfaceStatusBlock = (
+    <>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="rounded-lg border border-border bg-card px-3 py-1.5 text-muted-foreground shadow-xs">
+          마지막 인터페이스 일시:{" "}
+          <span className="font-mono font-semibold text-foreground">
+            {header.lastInterfaceAt ?? "—"}
+          </span>
+        </span>
+        {header.success === true && (
+          <span className={ui.badgeSuccess}>
+            <span aria-hidden>●</span> 동기화 성공
+          </span>
+        )}
+        {header.success === false && (
+          <span className={ui.badgeError}>
+            <span aria-hidden>●</span> 동기화 실패
+          </span>
+        )}
+        {busy && (
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {storeSyncing ? "JIRA 동기화 중" : "조회 중"}
+          </span>
+        )}
+        {!busy && configured && rows.length > 0 && (
+          <span className="text-muted-foreground">스프린트 {rows.length}건 동기화됨</span>
+        )}
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        자동: 매일 {String(JIRA_SYNC_SCHEDULE_HOUR).padStart(2, "0")}:00 ({tzLabel}) · 수동: 상단{" "}
+        <strong className="font-medium text-foreground">JIRA 동기화</strong>
+        {import.meta.env.DEV ? " (Vite 프록시)" : " (Supabase Edge)"}
+      </p>
+      {header.error && <p className="text-xs text-red-600">{header.error}</p>}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="px-4 py-4">
+        {!configured ? (
+          <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600">
+            VITE_SUPABASE_URL · VITE_SUPABASE_ANON_KEY 를 설정하세요.
+          </p>
+        ) : (
+          <div className="space-y-2">{interfaceStatusBlock}</div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={cn(ui.card, "overflow-hidden")}>
-      <header className="flex flex-wrap items-center justify-between gap-6 border-b border-gray-200 bg-slate-50/80 px-6 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-6 border-b border-border bg-muted/25 px-6 py-5">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className={ui.iconBox}>
-              <Database className="h-4 w-4 text-slate-700" />
+              <Database className="h-4 w-4 text-muted-foreground" />
             </div>
             <h1 className={ui.title}>JIRA 스프린트 관제</h1>
-            <span className="rounded-md border border-gray-200 bg-white px-2 py-0.5 font-mono text-[10px] font-medium text-slate-600">
+            <span className="rounded-md border border-border bg-card px-2 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
               jira_sprints
             </span>
           </div>
-
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-slate-600 shadow-xs">
-              마지막 인터페이스 일시:{" "}
-              <span className="font-mono font-medium text-slate-900">
-                {header.lastInterfaceAt ?? "—"}
-              </span>
-            </span>
-
-            {header.success === true && (
-              <span className={ui.badgeSuccess}>
-                <span aria-hidden>●</span> 동기화 성공
-              </span>
-            )}
-            {header.success === false && (
-              <span className={ui.badgeError}>
-                <span aria-hidden>●</span> 동기화 실패
-              </span>
-            )}
-            {busy && (
-              <span className="inline-flex items-center gap-1.5 text-slate-600">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                {refreshing ? "JIRA 동기화 중" : "조회 중"}
-              </span>
-            )}
-          </div>
-
-          <p className="max-w-2xl text-xs leading-relaxed text-slate-500">
-            자동 인터페이스: 매일 {String(JIRA_SYNC_SCHEDULE_HOUR).padStart(2, "0")}:00 ({tzLabel}) · GitHub
-            Actions · 수동: <strong className="font-medium text-slate-700">Jira 동기화</strong> → JIRA API 조회 후 DB
-            전체 교체
-            {import.meta.env.DEV
-              ? " (개발: Vite JIRA 프록시)"
-              : " (운영: Supabase Edge — sync-jira-all / jira-proxy)"}
-          </p>
-          {header.error && <p className="text-xs text-red-600">{header.error}</p>}
+          {interfaceStatusBlock}
         </div>
-
-        <Button
-          type="button"
-          size="sm"
-          disabled={!configured || busy}
-          onClick={() => void handleManualSync()}
-          className="h-10 shrink-0 gap-2 rounded-lg px-4"
-        >
-          {busy ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {refreshing ? "동기화 중…" : "불러오는 중…"}
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-4 w-4" />
-              Jira 동기화
-            </>
-          )}
-        </Button>
       </header>
 
       {!configured && (
-        <p className="mx-6 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="mx-6 mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600">
           VITE_SUPABASE_URL · VITE_SUPABASE_ANON_KEY 를 설정하세요.
         </p>
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left">
+        <table className="w-full border-collapse">
           <thead>
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="border-b border-gray-200 bg-slate-50">
+              <tr key={hg.id} className="border-b border-border/70 bg-muted/40">
                 {hg.headers.map((h) => (
                   <th
                     key={h.id}
                     className={cn(
-                      "px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500",
+                      "px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground transition-colors duration-300",
                       h.column.id === "remaining_days" && "text-right"
                     )}
                   >

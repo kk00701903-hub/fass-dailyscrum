@@ -9,3 +9,15 @@ verify_jwt = false
 
 [functions.jira-proxy]
 verify_jwt = false
+
+[functions.register-push-subscription]
+verify_jwt = false
+
+[functions.push-notification-preferences]
+verify_jwt = false
+
+[functions.send-scrum-reminder-push]
+verify_jwt = false
+
+[functions.send-manual-push]
+verify_jwt = false

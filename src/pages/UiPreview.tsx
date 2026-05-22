@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { Info, AlertCircle, Sparkles, Bold as BoldIcon } from "lucide-react";
+import { Info, AlertCircle, Sparkles, Bold as BoldIcon, ExternalLink } from "lucide-react";
+import {
+  UNTITLED_UI_DESIGN_SYSTEM,
+  UNTITLED_UI_SCREEN_REFERENCES,
+} from "@/lib/untitled-ui-attribution";
+import { ui } from "@/lib/design-system";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -57,6 +63,20 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { StatCard, StatusBadge, SectionHeader } from "@/components/Stats";
 import { STATUS_CONFIG } from "@/lib/index";
 import { toast } from "@/hooks/use-toast";
+
+function AttributionLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition-colors hover:bg-slate-50 hover:text-slate-900"
+    >
+      {label}
+      <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+    </a>
+  );
+}
 
 function Section({
   title,
@@ -119,6 +139,62 @@ export default function UiPreview() {
             </div>
           </div>
         </div>
+
+        <section className={cn(ui.card, "overflow-hidden")}>
+          <div className={cn(ui.cardHeader, "space-y-1")}>
+            <h2 className={ui.title}>디자인 출처 · Untitled UI</h2>
+            <p className={ui.muted}>
+              본 프로젝트 UI는 Figma 무료 키트「Untitled UI」디자인 시스템 스타일을 참고해 Tailwind로 구현했습니다. 특정
+              Figma 파일을 그대로 임베드한 것이 아니라, 아래 패턴·토큰을 기준으로 재구성했습니다.
+            </p>
+          </div>
+          <div className={cn(ui.cardBody, "space-y-6")}>
+            <div className="flex flex-wrap gap-2">
+              <AttributionLink href={UNTITLED_UI_DESIGN_SYSTEM.freeKitUrl} label="Free Figma UI Kit" />
+              <AttributionLink href={UNTITLED_UI_DESIGN_SYSTEM.figmaUrl} label="Untitled UI Figma" />
+              <AttributionLink href={UNTITLED_UI_DESIGN_SYSTEM.reactDocsUrl} label="Untitled UI React 문서" />
+              <AttributionLink href={UNTITLED_UI_DESIGN_SYSTEM.reactRepoUrl} label="GitHub (untitleduico/react)" />
+              <AttributionLink href={UNTITLED_UI_DESIGN_SYSTEM.downloadFigmaUrl} label="Figma 다운로드" />
+            </div>
+            <p className="text-xs text-slate-500">{UNTITLED_UI_DESIGN_SYSTEM.licenseNote}</p>
+
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className={ui.tableHead}>
+                    <th className="px-3 py-2.5">앱 화면</th>
+                    <th className="px-3 py-2.5">경로</th>
+                    <th className="px-3 py-2.5">참고한 Untitled UI 패턴</th>
+                    <th className="px-3 py-2.5">템플릿·키트 링크</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {UNTITLED_UI_SCREEN_REFERENCES.map((row) => (
+                    <tr key={row.appArea} className={ui.tableRow}>
+                      <td className="px-3 py-3 font-medium text-slate-900">{row.appArea}</td>
+                      <td className="px-3 py-3 font-mono text-xs text-slate-600">{row.appRoutes}</td>
+                      <td className="px-3 py-3 text-slate-600">
+                        {row.untitledPattern}
+                        <span className="mt-1 block text-xs text-slate-400">{row.note}</span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <a
+                          href={row.referenceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:text-slate-900"
+                        >
+                          {row.referenceUrl.includes("/react/") ? "React 문서" : "Free Figma UI Kit"}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
 
         <Section title="타이포 & 색" description="기본 텍스트 계층과 강조색입니다.">
           <div className="space-y-2">

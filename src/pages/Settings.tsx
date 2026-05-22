@@ -1,12 +1,7 @@
-/**
- * @license
- * UI Design inspired by Untitled UI Lite (untitledui.com)
- * Free for personal and commercial projects under Untitled UI Lite License.
- */
-import { useCallback, useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { Save, Server, Key, Bell, Users, Database, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { Save, Server, Key, Bell, Users, Database, CheckCircle2, XCircle, Loader2, GitBranch, Sun, Moon, Monitor } from "lucide-react";
 import { Card, SectionHeader } from "@/components/Stats";
+import { JiraSyncDashboard } from "@/components/JiraSyncDashboard";
 import {
   getStoredGrafanaDashboardEmbedUrl,
   setStoredGrafanaDashboardEmbedUrl,
@@ -25,13 +20,36 @@ import {
   maskSupabaseAnonKey,
 } from "@/lib/supabase/client";
 import { supabase } from "@/lib/supabaseClient";
-import { TEAM_MEMBERS } from "@/lib/index";
-import { memberAvatarStyle, ui } from "@/lib/untitled-ui";
+import { TeamCompositionSettings } from "@/components/settings/TeamCompositionSettings";
+import { NotificationSettings } from "@/components/settings/NotificationSettings";
+import { ui } from "@/lib/design-system";
+import {
+  getThemePreference,
+  setThemePreference,
+  THEME_CHANGED_EVENT,
+  type ThemePreference,
+} from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { CardContent } from "@/components/ui/card";
 
 type SupabaseProbe = "idle" | "checking" | "ok" | "error";
 
+const THEME_OPTIONS: { id: ThemePreference; label: string; icon: React.ElementType }[] = [
+  { id: "dark", label: "다크", icon: Moon },
+  { id: "light", label: "라이트", icon: Sun },
+  { id: "system", label: "시스템", icon: Monitor },
+];
+
 export default function Settings() {
+  const themePref = useSyncExternalStore(
+    (cb) => {
+      window.addEventListener(THEME_CHANGED_EVENT, cb);
+      return () => window.removeEventListener(THEME_CHANGED_EVENT, cb);
+    },
+    getThemePreference,
+    () => "light" as ThemePreference
+  );
   const [saved, setSaved] = useState(false);
   const [jiraUrl, setJiraUrl] = useState(() => getJiraBaseUrlFromEnv() || "https://your-org.atlassian.net");
   const [jiraEmail, setJiraEmail] = useState(() => getJiraEmailFromEnv() || "team@your-org.com");
@@ -99,25 +117,62 @@ export default function Settings() {
         readOnly={readOnly}
         onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         placeholder={placeholder}
-        className={cn(ui.input, readOnly && "cursor-default bg-slate-50 text-slate-600")}
+        className={cn(ui.input, "mt-2", readOnly && "cursor-default bg-muted/50 text-muted-foreground")}
       />
     </div>
   );
 
   return (
-    <motion.div className="mx-auto max-w-3xl space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      {/* JIRA */}
-      <Card className="p-6">
-        <motion.div className="flex items-center gap-2 mb-4">
+    <div className="mx-auto max-w-5xl space-y-3">
+      <Card className="p-4">
+        <SectionHeader dense title="화면 테마" subtitle="기본 라이트 · 다크는 아래에서 선택" />
+        <div className="mt-3 flex flex-wrap gap-2">
+          {THEME_OPTIONS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setThemePreference(id)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-xs font-semibold transition-colors",
+                themePref === id
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-card/50 text-muted-foreground hover:bg-muted/30"
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden p-0">
+        <div className="border-b border-border px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className={cn(ui.iconBoxSm, ui.iconCyan)}>
+              <GitBranch className="h-4 w-4" />
+            </div>
+            <SectionHeader
+              title="JIRA 동기화"
+              subtitle="마지막 인터페이스 일시만 표시합니다. 동기화는 상단 헤더의 JIRA 동기화 버튼을 사용하세요."
+            />
+          </div>
+        </div>
+        <JiraSyncDashboard embedded />
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4">
+        <div className="mb-3 flex items-center gap-2">
           <div className={cn(ui.iconBoxSm, ui.iconCyan)}>
             <Key className="h-4 w-4" />
           </div>
-          <SectionHeader title="JIRA Cloud 연동 설정" />
-        </motion.div>
+          <SectionHeader dense title="JIRA Cloud 연동 설정" />
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <Field label="JIRA 도메인" value={jiraUrl} onChange={setJiraUrl} placeholder="https://org.atlassian.net" />
           <Field label="이메일" value={jiraEmail} onChange={setJiraEmail} type="email" />
-          <motion.div className="col-span-2">
+          <div className="col-span-2">
             <Field
               label="API Token"
               value={jiraToken}
@@ -132,7 +187,7 @@ export default function Settings() {
                 띄워 주세요.
               </p>
             )}
-          </motion.div>
+          </div>
           <Field
             label="스크럼 보드 ID"
             value={jiraBoardId || "—"}
@@ -143,19 +198,20 @@ export default function Settings() {
         <p className="mt-3 text-[10px] text-slate-500">
           스프린트·이슈 동기화는 <code className="text-[10px]">.env.local</code>의{" "}
           <code className="text-[10px]">VITE_JIRA_BOARD_ID</code>를 사용합니다. 자동 배치는 GitHub Actions 매일{" "}
-          {`${String(JIRA_SYNC_SCHEDULE_HOUR).padStart(2, "0")}:00 (${tzLabel})`}, 수동은 JIRA 동기화 화면 버튼입니다.
+          {`${String(JIRA_SYNC_SCHEDULE_HOUR).padStart(2, "0")}:00 (${tzLabel})`}, 수동은 위 동기화 패널 또는 상단 헤더 버튼입니다.
         </p>
+        </CardContent>
       </Card>
 
-      {/* Supabase */}
-      <Card className="p-6">
-        <motion.div className="mb-4 flex items-center justify-between gap-2">
-          <motion.div className="flex items-center gap-2">
+      <Card>
+        <CardContent className="pt-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
             <div className={cn(ui.iconBoxSm, ui.iconViolet)}>
               <Database className="h-4 w-4" />
             </div>
-            <SectionHeader title="Supabase 연결" subtitle="PostgreSQL 호스팅 · 앱 데이터 저장" />
-          </motion.div>
+            <SectionHeader dense title="Supabase 연결" subtitle="PostgreSQL 호스팅 · 앱 데이터 저장" />
+          </div>
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
@@ -175,8 +231,8 @@ export default function Settings() {
                   ? "연결 실패"
                   : "대기"}
           </span>
-        </motion.div>
-        <motion.div className="grid grid-cols-1 gap-4">
+        </div>
+        <div className="grid grid-cols-1 gap-3">
           <Field
             label="Project URL"
             value={supabaseUrl || "—"}
@@ -184,7 +240,7 @@ export default function Settings() {
             placeholder="https://xxxx.supabase.co"
           />
           <Field label="Anon Key" value={supabaseAnonMasked || "—"} readOnly type="password" />
-        </motion.div>
+        </div>
         {supabaseProbeDetail && (
           <p
             className={cn(
@@ -201,27 +257,29 @@ export default function Settings() {
           <code className="text-[10px]">.env.local</code>의 <code className="text-[10px]">VITE_SUPABASE_URL</code>,{" "}
           <code className="text-[10px]">VITE_SUPABASE_ANON_KEY</code>에서 읽습니다.
         </p>
-        <motion.button
+        <Button
           type="button"
-          whileTap={{ scale: 0.98 }}
+          variant="outline"
+          size="sm"
+          className="mt-3"
           onClick={() => void probeSupabase()}
           disabled={supabaseProbe === "checking"}
-          className={cn(ui.btnSecondary, "mt-3 px-3 py-1.5 text-xs")}
         >
           연결 다시 확인
-        </motion.button>
+        </Button>
+        </CardContent>
       </Card>
 
-      {/* Grafana */}
-      <Card className="p-6">
-        <motion.div className="mb-4 flex items-center gap-2">
-          <motion.div className={cn(ui.iconBoxSm, ui.iconOrange)}>
+      <Card>
+        <CardContent className="pt-4">
+        <div className="mb-3 flex items-center gap-2">
+          <div className={cn(ui.iconBoxSm, ui.iconOrange)}>
             <Server className="h-4 w-4" />
-          </motion.div>
-          <SectionHeader title="Grafana 연동" />
-        </motion.div>
+          </div>
+          <SectionHeader dense title="Grafana 연동" />
+        </div>
         <Field label="Grafana URL" value={grafanaUrl} onChange={setGrafanaUrl} placeholder="http://localhost:3000" />
-        <motion.div className="mt-4">
+        <div className="mt-3">
           <label className={cn(ui.label, "mb-1.5 block")}>대시보드 임베드 URL</label>
           <textarea
             value={grafanaEmbedUrl}
@@ -234,75 +292,46 @@ export default function Settings() {
             비우고 저장하면 브라우저 저장값을 지웁니다. 빌드 시{" "}
             <code className="text-[10px]">VITE_GRAFANA_DASHBOARD_EMBED_URL</code>이 있으면 그 값이 우선합니다.
           </p>
-        </motion.div>
-      </Card>
-
-      {/* Team */}
-      <Card className="p-6">
-        <motion.div className="flex items-center gap-2 mb-4">
-          <motion.div className={cn(ui.iconBoxSm, ui.iconEmerald)}>
-            <Users className="h-4 w-4" />
-          </motion.div>
-          <SectionHeader title="팀 구성" subtitle="역할 및 표시 이름" />
-        </motion.div>
-        <div className="grid grid-cols-2 gap-3">
-          {TEAM_MEMBERS.map((m) => (
-            <motion.div
-              key={m.id}
-              className={ui.memberCard}
-            >
-              <motion.div
-                className="w-8 h-8 rounded-full flex items-center justify-center font-bold"
-                style={memberAvatarStyle(m.color)}
-              >
-                {m.avatar}
-              </motion.div>
-              <div>
-                <p className="text-sm font-medium text-slate-900">{m.name}</p>
-                <p className="text-xs text-slate-500">{m.role}</p>
-              </div>
-              <motion.div className="ml-auto h-2 w-2 rounded-full bg-emerald-500" />
-            </motion.div>
-          ))}
         </div>
+        </CardContent>
       </Card>
 
-      {/* Notifications */}
-      <Card className="p-6">
-        <motion.div className="flex items-center gap-2 mb-4">
+      <Card>
+        <CardContent className="pt-4">
+        <div className="mb-3 flex items-center gap-2">
+          <div className={cn(ui.iconBoxSm, ui.iconEmerald)}>
+            <Users className="h-4 w-4" />
+          </div>
+          <SectionHeader
+            dense
+            title="팀 구성"
+            subtitle="담당자 표시 · 로그인 상태 · 비밀번호 초기화"
+          />
+        </div>
+        <TeamCompositionSettings />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4">
+        <div className="mb-3 flex items-center gap-2">
           <div className={cn(ui.iconBoxSm, ui.iconAmber)}>
             <Bell className="h-4 w-4" />
           </div>
-          <SectionHeader title="알림 설정" />
-        </motion.div>
-        <div className="space-y-3">
-          {[
-            { label: "블로커 발생 시 알림", desc: "Critical 블로커 등록 시 즉시 알림", checked: true },
-            { label: "스크럼 미입력 알림", desc: "오전 10시까지 미입력 팀원에게 리마인더", checked: true },
-            { label: "스프린트 마감 임박 알림", desc: "D-2 시점 팀 전체 알림", checked: false },
-          ].map((n) => (
-            <motion.div key={n.label} className={cn("flex items-center justify-between py-2", ui.divider)}>
-              <motion.div>
-                <p className="text-sm text-slate-900">{n.label}</p>
-                <p className="text-xs text-slate-500">{n.desc}</p>
-              </motion.div>
-              <motion.div className={cn(ui.toggle, n.checked ? ui.toggleOn : ui.toggleOff)} role="presentation">
-                <motion.div className={ui.toggleKnob} style={{ transform: n.checked ? "translateX(20px)" : "translateX(0)" }} />
-              </motion.div>
-            </motion.div>
-          ))}
+          <SectionHeader
+            dense
+            title="알림 설정"
+            subtitle="푸시 구독 · 스크럼 리마인더 · 수동 알림 발송"
+          />
         </div>
+        <NotificationSettings />
+        </CardContent>
       </Card>
 
-      {/* Save */}
-      <motion.button
-        whileTap={{ scale: 0.97 }}
-        onClick={handleSave}
-        className={cn(ui.btnPrimary, "w-full py-3")}
-      >
-        {saved ? <CheckCircle2 className="w-5 h-5" /> : <Save className="w-5 h-5" />}
-        {saved ? "저장 완료!" : "설정 저장"}
-      </motion.button>
-    </motion.div>
+      <Button type="button" className="w-full" onClick={handleSave}>
+        {saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+        {saved ? "저장 완료" : "설정 저장"}
+      </Button>
+    </div>
   );
 }

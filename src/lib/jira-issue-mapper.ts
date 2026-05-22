@@ -13,6 +13,7 @@ export const JIRA_ISSUE_FIELDS = [
   "resolutiondate",
   "issuetype",
   "parent",
+  "issuelinks",
 ] as const;
 
 export interface JiraIssueRaw {
@@ -30,12 +31,21 @@ export interface JiraIssueRaw {
     assignee?: { displayName?: string; emailAddress?: string; accountId?: string } | null;
     issuetype?: { name?: string; subtask?: boolean };
     parent?: { id?: string; key?: string };
+    issuelinks?: Array<{
+      id?: string;
+      type?: { name?: string; inward?: string; outward?: string };
+      outwardIssue?: { key?: string };
+      inwardIssue?: { key?: string };
+    }>;
     [key: string]: unknown;
   };
 }
 
 export interface JiraTaskDbRow {
+  /** JIRA REST issue.id — DB PK·jira_issue_id 와 동일 */
   id: string;
+  /** upsert onConflict 대상 (항상 issue.id 와 동일) */
+  jira_issue_id?: string;
   issue_key: string;
   sprint_id: string;
   summary: string;
@@ -102,7 +112,13 @@ export function mapJiraAssignee(
       email: null,
     };
   }
-  const byName = TEAM_MEMBERS.find((m) => m.name === a.displayName);
+  const displayName = (a.displayName ?? "").trim();
+  const byName = TEAM_MEMBERS.find((m) => {
+    if (m.name === displayName) return true;
+    if (displayName.length >= 2 && m.name.includes(displayName)) return true;
+    if (displayName.length === 1 && m.name.endsWith(displayName)) return true;
+    return false;
+  });
   if (byName) {
     return {
       ...byName,
@@ -148,11 +164,35 @@ function toTimestamptz(iso?: string): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+function extractCustomFieldDate(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return toDateOnly(value);
+  if (typeof value === "object" && value !== null) {
+    const o = value as Record<string, unknown>;
+    if (typeof o.value === "string") return toDateOnly(o.value);
+    if (typeof o.start === "string") return toDateOnly(o.start);
+  }
+  return null;
+}
+
+/** JIRA 시작일 커스텀 필드 (env 미설정 시 customfield_10015) */
+export function readJiraStartDate(
+  fields: JiraIssueRaw["fields"],
+  startFieldId: string
+): string | null {
+  const primary = startFieldId.trim() || "customfield_10015";
+  const fromPrimary = extractCustomFieldDate(fields[primary]);
+  if (fromPrimary) return fromPrimary;
+
+  return null;
+}
+
 export function mapIssueToDbRow(
   issue: JiraIssueRaw,
   sprintId: string,
   storyField: string,
-  syncedAt: string
+  syncedAt: string,
+  startFieldId = ""
 ): JiraTaskDbRow {
   const assignee = mapJiraAssignee(issue.fields?.assignee);
   const issueType = issue.fields?.issuetype;
@@ -161,9 +201,10 @@ export function mapIssueToDbRow(
 
   return {
     id: issue.id,
+    jira_issue_id: issue.id,
     issue_key: issue.key,
     sprint_id: sprintId,
-    summary: issue.fields?.summary ?? "—",
+    summary: (issue.fields?.summary ?? "—").trim() || "—",
     status: mapJiraStatus(issue.fields?.status),
     priority: mapJiraPriority(issue.fields?.priority?.name),
     assignee_id: assignee.id,
@@ -177,7 +218,7 @@ export function mapIssueToDbRow(
     assignee_account_id: assignee.accountId,
     assignee_email: assignee.email,
     due_date: toDateOnly(issue.fields?.duedate),
-    start_date: null,
+    start_date: readJiraStartDate(issue.fields, startFieldId),
     created_at: toTimestamptz(issue.fields?.created),
     resolved_at: toTimestamptz(issue.fields?.resolutiondate),
     issue_type: issueType?.name ?? "",
@@ -189,6 +230,7 @@ export function mapIssueToDbRow(
   };
 }
 
-export function jiraIssueFieldsQuery(storyField: string): string {
-  return [...JIRA_ISSUE_FIELDS, storyField].join(",");
+export function jiraIssueFieldsQuery(storyField: string, startField = ""): string {
+  const extra = [storyField, startField.trim()].filter(Boolean);
+  return [...JIRA_ISSUE_FIELDS, ...extra].join(",");
 }

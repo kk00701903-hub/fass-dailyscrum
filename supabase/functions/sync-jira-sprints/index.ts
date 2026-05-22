@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { buildJiraBasicAuthBase64 } from "../_shared/jira-basic-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -57,15 +58,24 @@ async function fetchAllSprints(
   jiraBase: string,
   auth: string,
   boardId: string
-): Promise<Array<{ sprint_name: string; status: string; remaining_days: number }>> {
+): Promise<
+  Array<{
+    sprint_name: string;
+    status: string;
+    remaining_days: number;
+    jira_sprint_id: string;
+    start_date: string | null;
+    end_date: string | null;
+  }>
+> {
   const maxResults = 50;
-  const all: Array<{ name: string; state: string; endDate?: string }> = [];
+  const all: Array<{ id: number; name: string; state: string; startDate?: string; endDate?: string }> = [];
   let startAt = 0;
 
   for (;;) {
     const path = `/rest/agile/1.0/board/${boardId}/sprint?state=active,closed,future&startAt=${startAt}&maxResults=${maxResults}`;
     const page = await jiraFetch<{
-      values: Array<{ name: string; state: string; endDate?: string }>;
+      values: Array<{ id: number; name: string; state: string; startDate?: string; endDate?: string }>;
       isLast?: boolean;
     }>(jiraBase, auth, path);
 
@@ -76,13 +86,26 @@ async function fetchAllSprints(
     if (startAt > 500) break;
   }
 
-  const byName = new Map<string, { sprint_name: string; status: string; remaining_days: number }>();
+  const byName = new Map<
+    string,
+    {
+      sprint_name: string;
+      status: string;
+      remaining_days: number;
+      jira_sprint_id: string;
+      start_date: string | null;
+      end_date: string | null;
+    }
+  >();
   for (const sp of all) {
     if (!sp.name?.trim()) continue;
     byName.set(sp.name, {
       sprint_name: sp.name,
       status: statusLabel(sp.state),
       remaining_days: remainingDays(sp.endDate),
+      jira_sprint_id: `jira-sprint-${sp.id}`,
+      start_date: sp.startDate?.slice(0, 10) ?? null,
+      end_date: sp.endDate?.slice(0, 10) ?? null,
     });
   }
   return [...byName.values()];
@@ -109,7 +132,7 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
-  const auth = btoa(`${jiraEmail}:${jiraToken}`);
+  const auth = buildJiraBasicAuthBase64(jiraEmail, jiraToken);
 
   try {
     const rows = await fetchAllSprints(jiraBase, auth, boardId);
@@ -122,10 +145,21 @@ Deno.serve(async (req) => {
       return json({ ok: true, count: 0, mode: "full_replace" });
     }
 
-    const { error: insertError } = await supabase.from("jira_sprints").insert(
-      rows.map((r) => ({ ...r, updated_at: now }))
-    );
-    if (insertError) throw insertError;
+    const fullPayload = rows.map((r) => ({ ...r, updated_at: now }));
+    const { error: insertFull } = await supabase.from("jira_sprints").insert(fullPayload);
+    if (insertFull) {
+      const msg = insertFull.message ?? "";
+      if (!/end_date|start_date|jira_sprint_id|schema cache/i.test(msg)) throw insertFull;
+      const { error: insertBasic } = await supabase.from("jira_sprints").insert(
+        rows.map((r) => ({
+          sprint_name: r.sprint_name,
+          status: r.status,
+          remaining_days: r.remaining_days,
+          updated_at: now,
+        }))
+      );
+      if (insertBasic) throw insertBasic;
+    }
 
     return json({ ok: true, count: rows.length, mode: "full_replace" });
   } catch (e) {

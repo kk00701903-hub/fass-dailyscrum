@@ -1,12 +1,31 @@
+export {
+  logError,
+  handleApiError,
+  withApiErrorHandling,
+  ApiError,
+  isApiError,
+  getHttpStatus,
+  initGlobalErrorHandlers,
+} from "@/lib/errors";
+
+export { apiFetch } from "@/lib/api/http-client";
+export { http, createAxiosClient } from "@/lib/api/axios-instance";
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 export const ROUTES = {
-  DASHBOARD: "/",
+  /** 앱 시작·로그인 후 기본 화면 */
+  HOME: "/scrum",
   JIRA_SYNC: "/jira",
+  JIRA_WBS: "/jira/wbs",
+  JIRA_DEPENDENCIES: "/jira/dependencies",
   DAILY_SCRUM: "/scrum",
   SCRUM_HISTORY: "/scrum/history",
   ANALYTICS: "/analytics",
   SETTINGS: "/settings",
-  UI_PREVIEW: "/ui-preview",
+  LOGIN: "/login",
+  SIGNUP: "/signup",
+  FIND_ID: "/find-id",
+  FIND_PASSWORD: "/find-password",
 } as const;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -93,14 +112,33 @@ export const TEAM_MEMBERS: TeamMember[] = [
   { id: "lee", name: "이지상", avatar: "이", role: "Frontend", color: "#f87171" },
 ];
 
+/** 데일리 스크럼 작성 대상에서 제외할 멤버 id */
+export const DAILY_SCRUM_EXCLUDED_MEMBER_IDS = ["seo"] as const;
+
+/** 데일리 스크럼 탭·저장 대상 (서선범 제외) */
+export const DAILY_SCRUM_MEMBERS = TEAM_MEMBERS.filter(
+  (m) => !(DAILY_SCRUM_EXCLUDED_MEMBER_IDS as readonly string[]).includes(m.id)
+);
+
 export function getTeamMember(id: string): TeamMember {
   return TEAM_MEMBERS.find((m) => m.id === id) ?? TEAM_MEMBERS[0]!;
 }
 
+export {
+  getMembersForScrumHistory,
+  getMembersForAnalytics,
+  getTeamMemberPrefs,
+  isMemberInScrumHistory,
+  isMemberInAnalytics,
+  setMemberScrumHistoryIncluded,
+  setMemberAnalyticsIncluded,
+  TEAM_MEMBER_PREFS_EVENT,
+} from "@/lib/team-member-preferences";
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bg: string }> = {
   TODO: { label: "할 일", color: "#94a3b8", bg: "rgba(148,163,184,0.15)" },
-  IN_PROGRESS: { label: "진행 중", color: "#22d3ee", bg: "rgba(34,211,238,0.15)" },
+  IN_PROGRESS: { label: "진행 중", color: "#1e3a8a", bg: "rgba(30, 58, 138, 0.12)" },
   IN_REVIEW: { label: "검토 중", color: "#a78bfa", bg: "rgba(167,139,250,0.15)" },
   DONE: { label: "완료", color: "#34d399", bg: "rgba(52,211,153,0.15)" },
   BLOCKED: { label: "블로커", color: "#f87171", bg: "rgba(248,113,113,0.15)" },

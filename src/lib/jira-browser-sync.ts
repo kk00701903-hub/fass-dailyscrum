@@ -34,5 +34,10 @@ export async function runBrowserJiraFullSync(): Promise<{
     return { ok: false, count: sprints.count, error: tasks.error ?? "이슈 동기화에 실패했습니다." };
   }
 
-  return { ok: true, count: sprints.count, tasksCount: tasks.count };
+  return {
+    ok: true,
+    count: sprints.count,
+    tasksCount: tasks.count,
+    linksCount: tasks.linksCount,
+  };
 }

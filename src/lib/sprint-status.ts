@@ -12,15 +12,19 @@ export function normalizeSprintState(raw: string | null | undefined): Sprint["st
 
 export function jiraSprintRowToSprint(row: {
   id?: string;
+  jira_sprint_id?: string | null;
   sprint_name: string;
   status: string;
+  start_date?: string | null;
+  end_date?: string | null;
 }): Sprint {
+  const sliceDate = (v?: string | null) => (v ? String(v).slice(0, 10) : "—");
   return {
-    id: row.id ?? row.sprint_name,
+    id: row.jira_sprint_id ?? row.id ?? row.sprint_name,
     name: row.sprint_name,
     state: normalizeSprintState(row.status),
-    startDate: "—",
-    endDate: "—",
+    startDate: sliceDate(row.start_date),
+    endDate: sliceDate(row.end_date),
     goal: "",
   };
 }

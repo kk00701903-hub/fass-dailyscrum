@@ -1,40 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import {
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-  type ColumnDef,
-  type SortingState,
-} from "@tanstack/react-table";
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { Link, useLocation } from "react-router-dom";
 import {
   ArrowLeft,
-  ArrowUpDown,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Loader2,
   Table2,
-  Users,
+  UsersRound,
 } from "lucide-react";
-import { resolveSprintName } from "@/lib/jira-live-data";
+import { TeamDailyLogGrid } from "@/components/scrum/TeamDailyLogGrid";
 import { fetchDailyReportsByDate, type DailyReportRow } from "@/lib/daily-reports-repository";
 import { fetchScrumEntriesByDate } from "@/lib/supabase/jira-repository";
-import { getMemberSprintFocus } from "@/lib/scrum-sprint-preferences";
-import { getAllScrumHistory } from "@/lib/scrum-storage";
+import {
+  getAllScrumHistory,
+  getScrumEntriesRevision,
+  hydrateScrumHistoryFromSupabase,
+  SCRUM_ENTRIES_CHANGED_EVENT,
+  subscribeScrumEntries,
+} from "@/lib/scrum-storage";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { TEAM_MEMBERS, ROUTES } from "@/lib/index";
-import type { ScrumEntry, TeamMember } from "@/lib/index";
-import { Card, SectionHeader } from "@/components/Stats";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  getMembersForScrumHistory,
+  TEAM_MEMBER_PREFS_EVENT,
+} from "@/lib/team-member-preferences";
+import { buildTeamDailyLogRows } from "@/lib/team-daily-log";
+import type { ScrumEntry } from "@/lib/index";
+import { Card, SectionHeader } from "@/components/Stats";
+import { memberAvatarStyle, ui } from "@/lib/design-system";
 import { cn } from "@/lib/utils";
 
 const ALL_MEMBERS = "all";
@@ -62,180 +63,74 @@ function formatDateLabel(dateStr: string): string {
   }).format(new Date(`${dateStr}T12:00:00`));
 }
 
-export type TeamDailyReportRow = {
-  id: string;
-  member_id: string;
-  member: TeamMember;
-  sprint: string;
-  yesterday_achievement: string | null;
-  today_plan: string | null;
-  bottleneck: string | null;
-  hasReport: boolean;
-};
-
-function buildTeamRows(
-  reportDate: string,
-  reports: DailyReportRow[],
-  scrumEntries: ScrumEntry[],
-  memberFilter: string
-): TeamDailyReportRow[] {
-  const members =
-    memberFilter === ALL_MEMBERS ? TEAM_MEMBERS : TEAM_MEMBERS.filter((m) => m.id === memberFilter);
-
-  return members.map((member) => {
-    const report = reports.find((r) => r.member_id === member.id) ?? null;
-    const scrumEntry = scrumEntries.find((e) => e.memberId === member.id) ?? null;
-
-    let sprint = "—";
-    if (scrumEntry) {
-      sprint = resolveSprintName(scrumEntry.sprintId);
-    } else if (report) {
-      const focusId = getMemberSprintFocus(member.id);
-      sprint = focusId ? resolveSprintName(focusId) : "—";
-    }
-
-    return {
-      id: report?.id ?? `${reportDate}-${member.id}`,
-      member_id: member.id,
-      member,
-      sprint,
-      yesterday_achievement: report?.yesterday_achievement?.trim() ? report.yesterday_achievement : null,
-      today_plan: report?.today_plan?.trim() ? report.today_plan : null,
-      bottleneck: report?.bottleneck?.trim() ? report.bottleneck : null,
-      hasReport: Boolean(report),
-    };
-  });
-}
-
-function EmptyItalic({ children = "미입력" }: { children?: string }) {
+function MetaMiniBadge({
+  children,
+  accent,
+}: {
+  children: ReactNode;
+  accent?: "primary" | "neutral" | "success";
+}) {
   return (
-    <span className="italic" style={{ color: "var(--muted-foreground)" }}>
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold tabular-nums",
+        accent === "primary" && "border-primary/30 bg-primary/10 text-primary",
+        accent === "success" && "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+        (!accent || accent === "neutral") && ui.badgeNeutral
+      )}
+    >
       {children}
     </span>
   );
 }
 
-function ReportTextCell({
-  value,
-  variant = "muted",
-}: {
-  value: string | null;
-  variant?: "muted" | "foreground" | "danger";
-}) {
-  if (!value?.trim()) return <EmptyItalic />;
-  const color =
-    variant === "danger" ? "#f87171" : variant === "foreground" ? "var(--foreground)" : "var(--muted-foreground)";
-  return <span style={{ color }}>{value}</span>;
-}
-
-function SortableHeader({
-  label,
+function MemberFilterChip({
+  active,
   onClick,
-  sorted,
+  label,
+  avatar,
+  color,
 }: {
-  label: string;
+  active: boolean;
   onClick: () => void;
-  sorted: false | "asc" | "desc";
+  label: string;
+  avatar?: string;
+  color?: string;
 }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1 font-semibold hover:opacity-80 text-[11px]"
       onClick={onClick}
+      title={label}
+      className={cn(
+        "inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[10px] font-medium transition-colors",
+        active
+          ? "border-primary/40 bg-primary/10 text-primary shadow-xs"
+          : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-muted/40"
+      )}
     >
-      {label}
-      <ArrowUpDown className={cn("w-3 h-3", sorted ? "opacity-100" : "opacity-40")} />
+      {avatar != null && color != null ? (
+        <span
+          className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold"
+          style={{
+            ...memberAvatarStyle(color),
+            border: `1px solid ${color}40`,
+          }}
+        >
+          {avatar}
+        </span>
+      ) : (
+        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-border bg-muted/50">
+          <UsersRound className="h-3 w-3 text-muted-foreground" />
+        </span>
+      )}
+      <span className="max-w-[5rem] truncate">{label}</span>
     </button>
   );
 }
 
-function createColumns(): ColumnDef<TeamDailyReportRow>[] {
-  return [
-    {
-      id: "member_id",
-      accessorFn: (row) => row.member.name,
-      header: ({ column }) => (
-        <SortableHeader
-          label="담당자"
-          sorted={column.getIsSorted() || false}
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        />
-      ),
-      cell: ({ row }) => {
-        const member = row.original.member;
-        return (
-          <div className="flex items-center gap-2">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-              style={{ background: `${member.color}25`, color: member.color }}
-            >
-              {member.avatar}
-            </div>
-            <span className="text-xs font-medium" style={{ color: "var(--foreground)" }}>
-              {member.name}
-            </span>
-          </div>
-        );
-      },
-      sortingFn: "alphanumeric",
-    },
-    {
-      id: "sprint",
-      accessorKey: "sprint",
-      header: ({ column }) => (
-        <SortableHeader
-          label="스프린트"
-          sorted={column.getIsSorted() || false}
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        />
-      ),
-      cell: ({ getValue }) => (
-        <span className="text-xs whitespace-nowrap align-top">{String(getValue() ?? "—")}</span>
-      ),
-      sortingFn: "alphanumeric",
-    },
-    {
-      id: "yesterday_achievement",
-      accessorKey: "yesterday_achievement",
-      header: () => <span className="text-[11px] font-semibold">전일 성과</span>,
-      enableSorting: false,
-      cell: ({ getValue }) => (
-        <div className="text-[11px] align-top leading-snug max-w-[320px]">
-          <ReportTextCell value={getValue() as string | null} variant="muted" />
-        </div>
-      ),
-    },
-    {
-      id: "today_plan",
-      accessorKey: "today_plan",
-      header: () => <span className="text-[11px] font-semibold">오늘 계획</span>,
-      enableSorting: false,
-      cell: ({ getValue }) => (
-        <div className="text-[11px] align-top leading-snug max-w-[320px]">
-          <ReportTextCell value={getValue() as string | null} variant="foreground" />
-        </div>
-      ),
-    },
-    {
-      id: "bottleneck",
-      accessorKey: "bottleneck",
-      header: () => <span className="text-[11px] font-semibold">병목</span>,
-      enableSorting: false,
-      cell: ({ row }) => {
-        if (!row.original.hasReport) {
-          return <span className="text-[11px] align-top">—</span>;
-        }
-        return (
-          <div className="text-[11px] align-top leading-snug max-w-[220px]">
-            <ReportTextCell value={row.original.bottleneck} variant="danger" />
-          </div>
-        );
-      },
-    },
-  ];
-}
-
 export default function DailyScrumHistory() {
+  const location = useLocation();
   const dday = defaultDday();
   const [dateFilter, setDateFilter] = useState(() => todayIso());
   const [memberFilter, setMemberFilter] = useState<string>(ALL_MEMBERS);
@@ -243,7 +138,12 @@ export default function DailyScrumHistory() {
   const [scrumEntries, setScrumEntries] = useState<ScrumEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [sorting, setSorting] = useState<SortingState>([]);
+
+  const entriesRevision = useSyncExternalStore(
+    subscribeScrumEntries,
+    getScrumEntriesRevision,
+    getScrumEntriesRevision
+  );
 
   const availableDates = useMemo(() => {
     const fromHistory = getAllScrumHistory().map((e) => e.date);
@@ -251,7 +151,7 @@ export default function DailyScrumHistory() {
     return [...new Set([...fromHistory, ...fromReports, dateFilter, todayIso()])].sort((a, b) =>
       b.localeCompare(a)
     );
-  }, [reports, dateFilter]);
+  }, [reports, dateFilter, entriesRevision]);
 
   const loadData = useCallback(async (reportDate: string) => {
     if (!isSupabaseConfigured()) {
@@ -282,26 +182,63 @@ export default function DailyScrumHistory() {
     void loadData(dateFilter);
   }, [dateFilter, loadData]);
 
-  const tableData = useMemo(
-    () => buildTeamRows(dateFilter, reports, scrumEntries, memberFilter),
-    [dateFilter, reports, scrumEntries, memberFilter]
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    void hydrateScrumHistoryFromSupabase();
+  }, []);
+
+  useEffect(() => {
+    const onEntriesChanged = () => void loadData(dateFilter);
+    window.addEventListener(SCRUM_ENTRIES_CHANGED_EVENT, onEntriesChanged);
+    return () => window.removeEventListener(SCRUM_ENTRIES_CHANGED_EVENT, onEntriesChanged);
+  }, [dateFilter, loadData]);
+
+  useEffect(() => {
+    if (location.pathname !== ROUTES.SCRUM_HISTORY) return;
+    void loadData(dateFilter);
+  }, [location.pathname, dateFilter, loadData]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadData(dateFilter);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [dateFilter, loadData]);
+
+  const scrumMembers = useSyncExternalStore(
+    (cb) => {
+      window.addEventListener(TEAM_MEMBER_PREFS_EVENT, cb);
+      return () => window.removeEventListener(TEAM_MEMBER_PREFS_EVENT, cb);
+    },
+    getMembersForScrumHistory,
+    getMembersForScrumHistory
   );
 
-  const columns = useMemo(() => createColumns(), []);
+  const tableData = useMemo(
+    () =>
+      buildTeamDailyLogRows(
+        dateFilter,
+        reports,
+        scrumEntries,
+        memberFilter,
+        ALL_MEMBERS,
+        scrumMembers
+      ),
+    [dateFilter, reports, scrumEntries, memberFilter, scrumMembers, entriesRevision]
+  );
 
-  const table = useReactTable({
-    data: tableData,
-    columns,
-    state: { sorting },
-    onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-  });
+  useEffect(() => {
+    if (memberFilter === ALL_MEMBERS) return;
+    if (!scrumMembers.some((m) => m.id === memberFilter)) {
+      setMemberFilter(ALL_MEMBERS);
+    }
+  }, [memberFilter, scrumMembers]);
 
   const dateIndex = availableDates.indexOf(dateFilter);
   const isDday = dateFilter === dday;
   const filledCount = tableData.filter((r) => r.hasReport).length;
-  const memberCount = memberFilter === ALL_MEMBERS ? TEAM_MEMBERS.length : 1;
+  const memberCount = memberFilter === ALL_MEMBERS ? scrumMembers.length : 1;
 
   const goPrevDay = () => {
     if (dateIndex < availableDates.length - 1) setDateFilter(availableDates[dateIndex + 1]!);
@@ -310,92 +247,84 @@ export default function DailyScrumHistory() {
     if (dateIndex > 0) setDateFilter(availableDates[dateIndex - 1]!);
   };
 
+  const today = todayIso();
+  const tableTitle =
+    memberFilter === ALL_MEMBERS ? "팀 전체 일지" : `${memberName(memberFilter)} 일지`;
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-            style={{ background: "rgba(34,211,238,0.12)", border: "1px solid rgba(34,211,238,0.2)" }}
-          >
-            <Table2 className="w-5 h-5" style={{ color: "var(--primary)" }} />
+    <div className="space-y-3">
+      <div className={ui.pageHeader}>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className={cn(ui.iconBoxSm, ui.iconCyan)}>
+            <Table2 className="h-4 w-4" />
           </div>
-          <div>
-            <h2 className="text-base font-bold" style={{ color: "var(--foreground)" }}>
-              데일리 스크럼 일지
-            </h2>
-            <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
-              일자(D-day) 기준으로 팀 전체를 보거나, 담당자별로 좁혀 조회합니다.
-            </p>
-          </div>
+          <h2 className={ui.title}>데일리 스크럼 일지</h2>
         </div>
-        <Link
-          to={ROUTES.DAILY_SCRUM}
-          className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-opacity hover:opacity-85 shrink-0"
-          style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--foreground)" }}
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
+        <Link to={ROUTES.DAILY_SCRUM} className={ui.btnSecondary}>
+          <ArrowLeft className="h-3.5 w-3.5" />
           입력 화면
         </Link>
       </div>
 
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: "var(--foreground)" }}>
-            <CalendarDays className="w-4 h-4 shrink-0" style={{ color: "var(--primary)" }} />
-            일자 조회
-            {isDday && (
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full font-bold"
-                style={{ background: "rgba(34,211,238,0.15)", color: "var(--primary)" }}
-              >
-                D-day
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-muted/25 px-3 py-1.5">
+          <MetaMiniBadge accent="neutral">
+            <CalendarDays className="h-3 w-3" />
+            {formatDateLabel(dateFilter)}
+          </MetaMiniBadge>
+          {isDday && <MetaMiniBadge accent="primary">D-day 기준</MetaMiniBadge>}
+          <MetaMiniBadge accent="neutral">
+            {memberFilter === ALL_MEMBERS ? `전체 ${memberCount}명` : memberName(memberFilter)}
+          </MetaMiniBadge>
+          <MetaMiniBadge accent={filledCount > 0 ? "success" : "neutral"}>
+            입력 {filledCount}건
+          </MetaMiniBadge>
+          <MetaMiniBadge accent="neutral">{tableData.length}행</MetaMiniBadge>
+          {loading && (
+            <MetaMiniBadge accent="neutral">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              불러오는 중
+            </MetaMiniBadge>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 border-b border-border px-3 py-2 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <span className={cn(ui.label, "mr-1 shrink-0")}>일자</span>
             <button
               type="button"
               onClick={goPrevDay}
               disabled={dateIndex >= availableDates.length - 1 || dateIndex < 0}
-              className="p-2 rounded-lg disabled:opacity-30 transition-opacity hover:opacity-80"
-              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--foreground)" }}
+              className={cn(ui.btnSecondary, "h-8 w-8 shrink-0 px-0")}
               title="이전 일자"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="h-3.5 w-3.5" />
             </button>
             <input
               type="date"
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              className="h-9 rounded-lg px-2 text-xs outline-none"
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                color: "var(--foreground)",
-              }}
+              className={cn(ui.input, "h-8 w-[9.5rem] shrink-0")}
             />
             <button
               type="button"
               onClick={() => setDateFilter(dday)}
-              className="text-xs px-3 py-2 rounded-lg font-medium transition-all border"
-              style={{
-                background: isDday ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.04)",
-                borderColor: isDday ? "rgba(34,211,238,0.45)" : "rgba(255,255,255,0.1)",
-                color: isDday ? "var(--primary)" : "var(--muted-foreground)",
-              }}
+              className={cn(
+                ui.btnSecondary,
+                "h-8 shrink-0 px-2.5",
+                isDday && "border-primary/40 bg-primary/10 text-primary"
+              )}
             >
               D-day
             </button>
             <button
               type="button"
-              onClick={() => setDateFilter(todayIso())}
-              className="text-xs px-3 py-2 rounded-lg font-medium transition-all border"
-              style={{
-                background: dateFilter === todayIso() ? "rgba(34,211,238,0.12)" : "rgba(255,255,255,0.04)",
-                borderColor: "rgba(255,255,255,0.1)",
-                color: "var(--muted-foreground)",
-              }}
+              onClick={() => setDateFilter(today)}
+              className={cn(
+                ui.btnSecondary,
+                "h-8 shrink-0 px-2.5",
+                dateFilter === today && "border-primary/40 bg-primary/10 text-primary"
+              )}
             >
               오늘
             </button>
@@ -403,166 +332,48 @@ export default function DailyScrumHistory() {
               type="button"
               onClick={goNextDay}
               disabled={dateIndex <= 0}
-              className="p-2 rounded-lg disabled:opacity-30 transition-opacity hover:opacity-80"
-              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--foreground)" }}
+              className={cn(ui.btnSecondary, "h-8 w-8 shrink-0 px-0")}
               title="다음 일자"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
-        </div>
-        <p className="text-[11px] mt-2" style={{ color: "var(--muted-foreground)" }}>
-          {formatDateLabel(dateFilter)}
-          {memberFilter === ALL_MEMBERS
-            ? ` · 전체 ${memberCount}명 · 입력 ${filledCount}건`
-            : ` · ${memberName(memberFilter)} · 입력 ${filledCount}건`}
-          {loading && (
-            <span className="inline-flex items-center gap-1 ml-2">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              불러오는 중
-            </span>
-          )}
-        </p>
-        {loadError && (
-          <p className="text-[11px] mt-2" style={{ color: "#f87171" }}>
-            {loadError}
-          </p>
-        )}
-        {availableDates.length > 1 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {availableDates.slice(0, 8).map((d) => {
-              const on = d === dateFilter;
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDateFilter(d)}
-                  className="text-[10px] px-2.5 py-1 rounded-full font-medium border transition-all"
-                  style={{
-                    background: on ? "rgba(34,211,238,0.12)" : "rgba(255,255,255,0.03)",
-                    borderColor: on ? "rgba(34,211,238,0.35)" : "rgba(255,255,255,0.08)",
-                    color: on ? "var(--primary)" : "var(--muted-foreground)",
-                  }}
-                >
-                  {d === dday ? "D-day · " : ""}
-                  {d}
-                </button>
-              );
-            })}
+
+          <div className="flex min-w-0 max-w-full items-center lg:max-w-[min(100%,32rem)] lg:justify-end">
+            <div className="flex max-w-full items-center gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <MemberFilterChip
+                active={memberFilter === ALL_MEMBERS}
+                onClick={() => setMemberFilter(ALL_MEMBERS)}
+                label="전체"
+              />
+              {scrumMembers.map((m) => (
+                <MemberFilterChip
+                  key={m.id}
+                  active={memberFilter === m.id}
+                  onClick={() => setMemberFilter(m.id)}
+                  label={m.name}
+                  avatar={m.avatar}
+                  color={m.color}
+                />
+              ))}
+            </div>
           </div>
-        )}
+        </div>
+
+        {loadError ? (
+          <p className="border-b border-border px-3 py-1.5 text-[10px] text-red-500">{loadError}</p>
+        ) : null}
       </Card>
 
-      <Card className="p-4">
-        <div className="flex items-center gap-2 text-xs font-semibold mb-3" style={{ color: "var(--foreground)" }}>
-          <Users className="w-4 h-4 shrink-0" style={{ color: "var(--primary)" }} />
-          담당자 필터
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setMemberFilter(ALL_MEMBERS)}
-            className="text-xs px-3 py-1.5 rounded-full font-medium transition-all border"
-            style={{
-              background: memberFilter === ALL_MEMBERS ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.04)",
-              borderColor: memberFilter === ALL_MEMBERS ? "rgba(34,211,238,0.45)" : "rgba(255,255,255,0.1)",
-              color: memberFilter === ALL_MEMBERS ? "var(--primary)" : "var(--muted-foreground)",
-            }}
-          >
-            전체
-          </button>
-          {TEAM_MEMBERS.map((m) => {
-            const on = memberFilter === m.id;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => setMemberFilter(m.id)}
-                className="text-xs px-3 py-1.5 rounded-full font-medium transition-all border flex items-center gap-1.5"
-                style={{
-                  background: on ? `${m.color}20` : "rgba(255,255,255,0.04)",
-                  borderColor: on ? `${m.color}50` : "rgba(255,255,255,0.1)",
-                  color: on ? m.color : "var(--muted-foreground)",
-                }}
-              >
-                <span
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold"
-                  style={{ background: `${m.color}25`, color: m.color }}
-                >
-                  {m.avatar}
-                </span>
-                {m.name}
-              </button>
-            );
-          })}
-        </div>
-      </Card>
-
-      <Card className="p-0 overflow-hidden">
-        <div className="px-5 py-4 border-b" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+      <Card className="overflow-hidden p-0">
+        <div className="border-b border-border bg-muted/15 px-3 py-2">
           <SectionHeader
-            title={memberFilter === ALL_MEMBERS ? "팀 전체 일지" : `${memberName(memberFilter)} 일지`}
-            subtitle={`${dateFilter} · ${table.getRowModel().rows.length}행 표시`}
+            dense
+            title={tableTitle}
+            subtitle={`${dateFilter} · 스크럼 기록 조회`}
           />
         </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-                  {headerGroup.headers.map((header) => (
-                    <TableHead
-                      key={header.id}
-                      className={cn(
-                        "text-[11px] whitespace-nowrap",
-                        header.column.id === "member_id" && "w-[100px]",
-                        header.column.id === "sprint" && "w-[108px]",
-                        header.column.id === "yesterday_achievement" && "min-w-[140px]",
-                        header.column.id === "today_plan" && "min-w-[140px]",
-                        header.column.id === "bottleneck" && "min-w-[120px]"
-                      )}
-                    >
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns.length} className="text-center py-10 text-sm" style={{ color: "var(--muted-foreground)" }}>
-                    조건에 맞는 기록이 없습니다.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    style={{
-                      borderColor: "rgba(255,255,255,0.05)",
-                      opacity: row.original.hasReport ? 1 : 0.55,
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={cn(
-                          "align-top",
-                          cell.column.id === "member_id" && "whitespace-nowrap"
-                        )}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        <TeamDailyLogGrid data={tableData} />
       </Card>
     </div>
   );

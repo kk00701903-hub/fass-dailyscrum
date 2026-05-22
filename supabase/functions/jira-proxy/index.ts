@@ -2,6 +2,7 @@
  * JIRA REST 프록시 — GitHub Pages 등 브라우저 CORS 우회
  * Secrets: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN
  */
+import { buildJiraAuthorizationHeader } from "../_shared/jira-basic-auth.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -42,11 +43,10 @@ Deno.serve(async (req) => {
     return json({ error: "path 는 /rest/ 로 시작해야 합니다." }, 400);
   }
 
-  const auth = btoa(`${jiraEmail}:${jiraToken}`);
   const res = await fetch(`${jiraBase}${path}`, {
     method,
     headers: {
-      Authorization: `Basic ${auth}`,
+      Authorization: buildJiraAuthorizationHeader(jiraEmail, jiraToken),
       Accept: "application/json",
       "X-Atlassian-Token": "no-check",
       ...(bodyText ? { "Content-Type": "application/json" } : {}),

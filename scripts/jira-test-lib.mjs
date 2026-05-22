@@ -132,8 +132,8 @@ function httpsRequest(urlString, opts) {
  */
 export function createJiraHttpClient(env) {
   const base = normBase(env.VITE_JIRA_BASE_URL || "");
-  const email = (env.VITE_JIRA_EMAIL || "").trim();
-  const token = (env.VITE_JIRA_API_TOKEN || "").trim();
+  const email = (env.VITE_JIRA_EMAIL || "").trim().replace(/^["']|["']$/g, "");
+  const token = (env.VITE_JIRA_API_TOKEN || "").trim().replace(/^["']|["']$/g, "");
   if (!base || !email || !token) return null;
 
   const auth = Buffer.from(`${email}:${token}`, "utf8").toString("base64");

@@ -11,15 +11,24 @@ import {
 import type { JiraTask, Sprint } from "@/lib/index";
 import { setJiraDataCache, clearJiraDataCache } from "@/lib/jira-data-registry";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import {
-  fetchSprintsFromDb,
-  fetchTasksFromDb,
-  invokeJiraSync,
-} from "@/lib/supabase/jira-repository";
-import { fetchJiraSprintsFromDb } from "@/lib/jira-sprints-dashboard";
+import { fetchSprintsFromDb, fetchTasksFromDb } from "@/lib/supabase/jira-repository";
+import { fetchJiraSprintsFromDb, invokeJiraSprintSync } from "@/lib/jira-sprints-dashboard";
+import { JIRA_BACKLOG_SPRINT_ID } from "@/lib/jira-sprint-map";
 import { jiraSprintRowToSprint } from "@/lib/sprint-status";
 import { isJiraLiveFetchAvailable } from "@/lib/jira-client";
-import { hydrateScrumHistoryFromSupabase } from "@/lib/scrum-storage";
+import {
+  hydrateScrumHistoryFromSupabase,
+  reconcileScrumHistoryWithJiraTasks,
+} from "@/lib/scrum-storage";
+
+const BACKLOG_SPRINT: Sprint = {
+  id: JIRA_BACKLOG_SPRINT_ID,
+  name: "백로그",
+  state: "future",
+  startDate: "—",
+  endDate: "—",
+  goal: "",
+};
 
 export type JiraSyncSource = "manual" | "schedule";
 export type JiraDataSource = "none" | "rest" | "exporter" | "supabase";
@@ -132,9 +141,18 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
         }
       }
       if (tasks.length === 0 && sprints.length === 0) return false;
+      if (
+        tasks.some((t) => t.sprintId === JIRA_BACKLOG_SPRINT_ID) &&
+        !sprints.some((s) => s.id === JIRA_BACKLOG_SPRINT_ID)
+      ) {
+        sprints = [...sprints, BACKLOG_SPRINT];
+      }
       const active = sprints.find((s) => s.state === "active") ?? sprints[0] ?? null;
       setJiraDataCache(tasks, sprints.length > 0 ? sprints : active ? [active] : []);
       await hydrateScrumHistoryFromSupabase();
+      if (tasks.length > 0) {
+        await reconcileScrumHistoryWithJiraTasks(tasks);
+      }
       set({
         dataSource: "supabase",
         liveTasks: tasks,
@@ -178,7 +196,7 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
         }
       };
 
-      void invokeJiraSync()
+      void invokeJiraSprintSync()
         .then(async (r) => {
           if (!r.ok) {
             const edgeMsg = r.error ?? "Supabase JIRA 동기화 실패";
@@ -198,19 +216,20 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
             });
             return;
           }
-          const [tasks, sprints] = await Promise.all([fetchTasksFromDb(), fetchSprintsFromDb()]);
-          const active = sprints.find((s) => s.state === "active") ?? sprints[0] ?? null;
-          setJiraDataCache(tasks, sprints);
-          await hydrateScrumHistoryFromSupabase();
+          const hydrated = await get().hydrateFromSupabase();
+          if (!hydrated) {
+            set({
+              syncing: false,
+              lastSyncAt: Date.now(),
+              lastSyncSource: source,
+              lastJiraError:
+                "JIRA → DB 동기화는 완료되었으나 화면 갱신에 실패했습니다. 페이지를 새로고침하세요.",
+            });
+            return;
+          }
           set({
             syncing: false,
-            dataSource: "supabase",
-            lastSyncAt: Date.now(),
             lastSyncSource: source,
-            liveTasks: tasks,
-            liveSprint: active,
-            liveSprints: sprints,
-            lastJiraError: null,
             exporterMeta: null,
             exporterWarnings: [],
           });

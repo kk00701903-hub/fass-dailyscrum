@@ -1,4 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { buildJiraBasicAuthBase64 } from "../_shared/jira-basic-auth.ts";
+import { upsertJiraTasksInDb } from "../_shared/jira-tasks-upsert.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,6 +62,7 @@ function mapIssueFields(
   const parent = issue.fields?.parent;
   return {
     id: issue.id,
+    jira_issue_id: issue.id,
     issue_key: issue.key,
     sprint_id: sprintId,
     summary: issue.fields?.summary ?? "—",
@@ -193,7 +196,7 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
-  const auth = btoa(`${jiraEmail}:${jiraToken}`);
+  const auth = buildJiraBasicAuthBase64(jiraEmail, jiraToken);
   const now = new Date().toISOString();
 
   const { data: runRow, error: runErr } = await supabase
@@ -340,11 +343,11 @@ Deno.serve(async (req) => {
     }
 
     if (taskRows.length > 0) {
-      const { error: delErr } = await supabase.from("jira_tasks").delete().not("issue_key", "is", null);
-      if (delErr) throw delErr;
-      const { error } = await supabase.from("jira_tasks").insert(taskRows);
-      if (error) throw error;
-      tasksCount = taskRows.length;
+      const { upserted, pruned } = await upsertJiraTasksInDb(supabase, taskRows, {
+        logPrefix: "[jira-sync]",
+      });
+      tasksCount = upserted;
+      if (pruned > 0) console.info(`[jira-sync] pruned ${pruned} stale task row(s)`);
     }
 
     await supabase

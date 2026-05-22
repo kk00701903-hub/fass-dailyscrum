@@ -1,32 +1,85 @@
-import { useState, useEffect, useMemo, type CSSProperties } from "react";
+import { useState, useEffect, useMemo, useSyncExternalStore } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Save, ClipboardCheck, CalendarDays, Table2, Pin, History, Plus, Layers } from "lucide-react";
-import { addCalendarDays, buildCarryoverFromPrevious, findPreviousScrumEntry } from "@/lib/scrum-carryover";
-import { getMemberBacklog } from "@/lib/scrum-backlog";
+import {
+  Save,
+  ClipboardCheck,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Table2,
+  History,
+} from "lucide-react";
+import {
+  addCalendarDays,
+  findPreviousMemberSelectedTasks,
+  findPreviousScrumEntry,
+  groupScrumTodayPlansByDate,
+  memberHasAnyScrumEntryOnDate,
+  memberHasSelectedTasksOnDate,
+} from "@/lib/scrum-carryover";
+import {
+  filterTasksByStatuses,
+  getMemberAssignedTasks,
+  resolveScrumEntrySprintId,
+  sanitizeSelectedTaskKeys,
+  SCRUM_TASK_STATUS_FILTER_DEFAULT,
+  type ScrumTaskPickerItem,
+} from "@/lib/scrum-backlog";
+import { ScrumTaskStatusFilter } from "@/components/ScrumTaskStatusFilter";
+import type { TaskStatus } from "@/lib/index";
+import {
+  getScrumSaveValidationMessage,
+  isScrumFormSavable,
+} from "@/lib/scrum-save-validation";
 import {
   findScrumEntry,
   getAllScrumHistory,
+  getScrumEntriesRevision,
   saveScrumEntry,
-  registerMemberSprint,
   hydrateScrumHistoryFromSupabase,
+  hydrateMemberSprintsFromSupabase,
+  subscribeScrumEntries,
+  SCRUM_ENTRIES_CHANGED_EVENT,
 } from "@/lib/scrum-storage";
 import { fetchDailyReport } from "@/lib/daily-reports-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useJiraSyncStore } from "@/store/jiraSyncStore";
-import { TEAM_MEMBERS, ROUTES, type ScrumEntry } from "@/lib/index";
+import { DAILY_SCRUM_MEMBERS, ROUTES, type ScrumEntry } from "@/lib/index";
+import { useAuthStore } from "@/store/authStore";
 import { getActiveJiraSprints } from "@/lib/jira-data-registry";
 import { resolveSprintName } from "@/lib/jira-live-data";
 import { Card } from "@/components/Stats";
-import { ScrumBacklogPicker } from "@/components/ScrumBacklogPicker";
+import { saveButtonStyle, ui } from "@/lib/design-system";
+import { cn } from "@/lib/utils";
+import { ScrumTaskPicker } from "@/components/ScrumTaskPicker";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+const SCRUM_BLOCKER_NONE_LABEL = "병목없음";
+
+function blockerFieldMode(blockers: string): "none" | "custom" {
+  const t = blockers.trim();
+  if (!t || t === "없음" || t === SCRUM_BLOCKER_NONE_LABEL) return "none";
+  return "custom";
+}
+
+function normalizeBlockersFromStorage(blockers: string): string {
+  const t = blockers.trim();
+  if (!t || t === "없음") return SCRUM_BLOCKER_NONE_LABEL;
+  return blockers;
+}
 import {
   getTeamActiveSprintId,
-  setTeamActiveSprintId,
   getMemberSprintFocus,
-  setMemberSprintFocus,
-  getSprintsForMember,
-  getSprintsAvailableToRegister,
   getInProgressSprints,
   SCRUM_SPRINT_PREFS_EVENT,
 } from "@/lib/scrum-sprint-preferences";
@@ -42,7 +95,7 @@ interface ScrumForm {
 const defaultForm: ScrumForm = {
   yesterday: "",
   today: "",
-  blockers: "",
+  blockers: SCRUM_BLOCKER_NONE_LABEL,
   selectedTasks: [],
   isCompleted: false,
 };
@@ -55,23 +108,14 @@ function entryToForm(e: ScrumEntry, isCompleted = false): ScrumForm {
   return {
     yesterday: e.yesterday,
     today: e.today,
-    blockers: e.blockers,
+    blockers: normalizeBlockersFromStorage(e.blockers),
     selectedTasks: [...e.selectedTasks],
     isCompleted,
   };
 }
 
-const fieldBox: CSSProperties = {
-  background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  color: "var(--foreground)",
-  lineHeight: 1.45,
-};
-
-function defaultDateString(): string {
-  const dates = getAllScrumHistory().map((e) => e.date);
-  if (dates.length === 0) return new Date().toISOString().slice(0, 10);
-  return [...dates].sort((a, b) => b.localeCompare(a))[0]!;
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function buildFormFromHistory(dateStr: string, memberId: string, sprintId: string): ScrumForm {
@@ -80,10 +124,14 @@ function buildFormFromHistory(dateStr: string, memberId: string, sprintId: strin
 }
 
 function buildAllForms(dateStr: string): Record<string, ScrumForm> {
+  const teamId = getTeamActiveSprintId();
+  const inProgressIds = getInProgressSprints().map((s) => s.id);
   const next: Record<string, ScrumForm> = {};
-  for (const m of TEAM_MEMBERS) {
-    const sprintIds = new Set(getSprintsForMember(m.id).map((s) => s.id));
-    sprintIds.add(getMemberSprintFocus(m.id));
+  for (const m of DAILY_SCRUM_MEMBERS) {
+    const sprintIds = new Set(inProgressIds);
+    if (teamId) sprintIds.add(teamId);
+    const focus = getMemberSprintFocus(m.id);
+    if (focus) sprintIds.add(focus);
     for (const sid of sprintIds) {
       next[formKey(m.id, sid)] = buildFormFromHistory(dateStr, m.id, sid);
     }
@@ -91,12 +139,82 @@ function buildAllForms(dateStr: string): Record<string, ScrumForm> {
   return next;
 }
 
-function isScrumFormSavable(form: ScrumForm): boolean {
-  return (
-    form.yesterday.trim().length > 0 &&
-    form.today.trim().length > 0 &&
-    form.selectedTasks.length > 0
-  );
+function memberFormHasContent(forms: Record<string, ScrumForm>, memberId: string): boolean {
+  return Object.keys(forms).some((key) => {
+    if (!key.startsWith(`${memberId}::`)) return false;
+    const f = forms[key];
+    return !!(f?.yesterday || f?.today);
+  });
+}
+
+function collectMergedSelectedTasks(
+  prev: Record<string, ScrumForm>,
+  memberId: string,
+  panelSprintIds: string[],
+  teamSprintId: string,
+  allowedKeys: Set<string>
+): string[] {
+  const merged = new Set<string>();
+  for (const sid of panelSprintIds) {
+    for (const key of prev[formKey(memberId, sid)]?.selectedTasks ?? []) {
+      if (allowedKeys.has(key)) merged.add(key);
+    }
+  }
+  if (teamSprintId) {
+    for (const key of prev[formKey(memberId, teamSprintId)]?.selectedTasks ?? []) {
+      if (allowedKeys.has(key)) merged.add(key);
+    }
+  }
+  return [...merged];
+}
+
+/** 멤버의 스프린트별 폼에 동일한 담당 이슈 선택을 반영 (해제 시 재병합 방지) */
+function syncMemberSelectedTasksAcrossSprints(
+  prev: Record<string, ScrumForm>,
+  memberId: string,
+  sprintIds: Iterable<string>,
+  selectedTasks: string[],
+  dateStr: string
+): Record<string, ScrumForm> {
+  const next = { ...prev };
+  const keys = [...selectedTasks];
+  for (const sid of sprintIds) {
+    if (!sid) continue;
+    const k = formKey(memberId, sid);
+    const cur = next[k] ?? buildFormFromHistory(dateStr, memberId, sid);
+    next[k] = { ...cur, selectedTasks: keys };
+  }
+  return next;
+}
+
+function memberSprintIdsForTaskSync(
+  prev: Record<string, ScrumForm>,
+  memberId: string,
+  panelSprintIds: string[],
+  teamSprintId: string,
+  canonicalSprintId: string
+): string[] {
+  const ids = new Set(panelSprintIds);
+  if (teamSprintId) ids.add(teamSprintId);
+  if (canonicalSprintId) ids.add(canonicalSprintId);
+  for (const key of Object.keys(prev)) {
+    if (!key.startsWith(`${memberId}::`)) continue;
+    const sid = key.slice(memberId.length + 2);
+    if (sid) ids.add(sid);
+  }
+  return [...ids];
+}
+
+function applyMemberTaskSelection(
+  prev: Record<string, ScrumForm>,
+  memberId: string,
+  sprintIds: string[],
+  selectedTasks: string[],
+  dateStr: string,
+  assignedTasks: ReturnType<typeof getMemberAssignedTasks>
+): Record<string, ScrumForm> {
+  const clean = sanitizeSelectedTaskKeys(selectedTasks, assignedTasks);
+  return syncMemberSelectedTasksAcrossSprints(prev, memberId, sprintIds, clean, dateStr);
 }
 
 function ScrumField({
@@ -116,67 +234,262 @@ function ScrumField({
   accent?: "danger";
   action?: React.ReactNode;
 }) {
-  const borderFocus = accent === "danger" ? "rgba(248,113,113,0.4)" : "rgba(34,211,238,0.4)";
-  const borderDefault = accent === "danger" ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.08)";
-  const bg = accent === "danger" ? "rgba(248,113,113,0.04)" : fieldBox.background;
-
   return (
-    <div className="flex flex-col min-h-0 flex-1 gap-1">
-      <div className="flex items-center justify-between gap-2 shrink-0">
-        <label className="flex items-center gap-1.5 min-w-0 text-[11px] font-semibold" style={{ color: "var(--foreground)" }}>
+    <div className="flex min-h-0 flex-1 flex-col gap-1">
+      <div className="flex shrink-0 items-center justify-between gap-1.5">
+        <label className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
           <span>{icon}</span>
           {title}
-          {hint && (
-            <span className="font-normal truncate" style={{ color: "var(--muted-foreground)" }}>
-              {hint}
-            </span>
-          )}
+          {hint && <span className="truncate font-normal text-muted-foreground">{hint}</span>}
         </label>
-        {action && <div className="flex items-center gap-1 shrink-0">{action}</div>}
+        {action && <div className="flex shrink-0 items-center gap-1">{action}</div>}
       </div>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full flex-1 min-h-[3.25rem] resize-none rounded-md px-2 py-1.5 text-xs outline-none"
-        style={{ ...fieldBox, background: bg, border: `1px solid ${borderDefault}` }}
-        onFocus={(e) => (e.target.style.borderColor = borderFocus)}
-        onBlur={(e) => (e.target.style.borderColor = borderDefault)}
+        className={cn(
+          ui.textarea,
+          "min-h-[2.25rem] flex-1 resize-none font-sans text-xs leading-snug",
+          accent === "danger" && "border-red-200/80 bg-red-50/30 focus:ring-red-300/30"
+        )}
       />
     </div>
   );
 }
 
+function blockerTextForInput(blockers: string): string {
+  if (blockers === SCRUM_BLOCKER_NONE_LABEL || blockers === "없음") return "";
+  return blockers;
+}
+
+function ScrumBlockerField({
+  mode,
+  onModeChange,
+  value,
+  onChange,
+  action,
+}: {
+  mode: "none" | "custom";
+  onModeChange: (mode: "none" | "custom") => void;
+  value: string;
+  onChange: (v: string) => void;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1">
+      <div className="flex shrink-0 items-center justify-between gap-1.5">
+        <label className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+          <span>🚧</span>
+          병목
+        </label>
+        {action && <div className="flex shrink-0 items-center gap-1">{action}</div>}
+      </div>
+      <RadioGroup
+        value={mode}
+        onValueChange={(m) => onModeChange(m as "none" | "custom")}
+        className="flex shrink-0 flex-wrap items-center gap-4"
+      >
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+          <RadioGroupItem value="none" id="scrum-blocker-none" className="h-3.5 w-3.5" />
+          {SCRUM_BLOCKER_NONE_LABEL}
+        </label>
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
+          <RadioGroupItem value="custom" id="scrum-blocker-custom" className="h-3.5 w-3.5" />
+          직접 입력
+        </label>
+      </RadioGroup>
+      {mode === "custom" && (
+        <textarea
+          value={blockerTextForInput(value)}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="병목 내용을 입력하세요"
+          className={cn(
+            ui.textarea,
+            "min-h-[2.25rem] flex-1 resize-none font-sans text-xs leading-snug",
+            "border-red-200/80 bg-red-50/30 focus:ring-red-300/30"
+          )}
+        />
+      )}
+    </div>
+  );
+}
+
+function defaultActiveMemberId(): string {
+  const authMemberId = useAuthStore.getState().user?.memberId;
+  if (authMemberId && DAILY_SCRUM_MEMBERS.some((m) => m.id === authMemberId)) {
+    return authMemberId;
+  }
+  return DAILY_SCRUM_MEMBERS[0]!.id;
+}
+
 export default function DailyScrum() {
   const [prefsTick, setPrefsTick] = useState(0);
-  const [scrumDate, setScrumDate] = useState(defaultDateString);
-  const [activeMember, setActiveMember] = useState(TEAM_MEMBERS[0].id);
-  const [forms, setForms] = useState<Record<string, ScrumForm>>(() => buildAllForms(defaultDateString()));
+  const [scrumDate, setScrumDate] = useState(() => todayIso());
+  const [activeMember, setActiveMember] = useState(defaultActiveMemberId);
+  const [forms, setForms] = useState<Record<string, ScrumForm>>(() => buildAllForms(todayIso()));
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [yesterdayCarryoverHint, setYesterdayCarryoverHint] = useState<string | null>(null);
   const [planCarryoverHint, setPlanCarryoverHint] = useState<string | null>(null);
   const [blockersCarryoverHint, setBlockersCarryoverHint] = useState<string | null>(null);
+  const [blockerUiMode, setBlockerUiMode] = useState<"none" | "custom">("none");
+  const [highlightTaskSelection, setHighlightTaskSelection] = useState(false);
+  const [todoHintOpen, setTodoHintOpen] = useState(false);
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus[]>(
+    SCRUM_TASK_STATUS_FILTER_DEFAULT
+  );
+  const [todoHintTaskKey, setTodoHintTaskKey] = useState<string | null>(null);
 
   useEffect(() => {
-    const onPrefs = () => setPrefsTick((t) => t + 1);
+    const onPrefs = () => {
+      // #region agent log
+      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
+        body: JSON.stringify({
+          sessionId: "bf5f5d",
+          hypothesisId: "F",
+          location: "DailyScrum.tsx:prefsTick",
+          message: "prefsTick incremented",
+          data: {},
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      setPrefsTick((t) => t + 1);
+    };
     window.addEventListener(SCRUM_SPRINT_PREFS_EVENT, onPrefs);
-    window.addEventListener("scrum-entries-changed", onPrefs);
+    window.addEventListener(SCRUM_ENTRIES_CHANGED_EVENT, onPrefs);
     return () => {
       window.removeEventListener(SCRUM_SPRINT_PREFS_EVENT, onPrefs);
-      window.removeEventListener("scrum-entries-changed", onPrefs);
+      window.removeEventListener(SCRUM_ENTRIES_CHANGED_EVENT, onPrefs);
     };
   }, []);
 
   useEffect(() => {
+    // #region agent log
+    fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
+      body: JSON.stringify({
+        sessionId: "bf5f5d",
+        hypothesisId: "F",
+        location: "DailyScrum.tsx:buildAllForms-effect",
+        message: "rebuild all forms (date change only)",
+        data: { scrumDate },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     setForms(buildAllForms(scrumDate));
-  }, [scrumDate, prefsTick]);
+  }, [scrumDate]);
 
   const hydrateFromSupabase = useJiraSyncStore((s) => s.hydrateFromSupabase);
+  const lastJiraDataAt = useJiraSyncStore((s) => s.lastSyncAt);
+  const scrumHistoryRevision = useSyncExternalStore(
+    subscribeScrumEntries,
+    getScrumEntriesRevision,
+    () => 0
+  );
+
+  const pastTodayPlansByDate = useMemo(
+    () => groupScrumTodayPlansByDate(getAllScrumHistory(), activeMember),
+    [activeMember, scrumHistoryRevision]
+  );
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
-    void hydrateScrumHistoryFromSupabase().then(() => setForms(buildAllForms(scrumDate)));
+    void Promise.all([hydrateScrumHistoryFromSupabase(), hydrateMemberSprintsFromSupabase()]).then(
+      () => setForms(buildAllForms(scrumDate))
+    );
     void hydrateFromSupabase();
   }, [hydrateFromSupabase, scrumDate]);
+
+  /** 전일 담당 이슈 체크 → 익일(오늘·이후) 미저장 시 자동 반영·저장 (과거 일자·전체 해제 저장일 제외) */
+  useEffect(() => {
+    if (scrumDate < todayIso()) return;
+
+    const history = getAllScrumHistory();
+    const teamId = getTeamActiveSprintId();
+    const inProgress = getInProgressSprints();
+    const persistJobs: { memberId: string; sprintId: string; form: ScrumForm }[] = [];
+
+    setForms((prev) => {
+      let next = prev;
+      let changed = false;
+
+      for (const m of DAILY_SCRUM_MEMBERS) {
+        if (memberHasSelectedTasksOnDate(history, m.id, scrumDate)) continue;
+        if (memberHasAnyScrumEntryOnDate(history, m.id, scrumDate)) continue;
+
+        const backlog = getMemberActiveAssignedTasks(m.id);
+        const prevTasks = sanitizeSelectedTaskKeys(
+          findPreviousMemberSelectedTasks(history, m.id, scrumDate),
+          backlog
+        );
+        if (prevTasks.length === 0) continue;
+
+        const panelIds = new Set<string>();
+        for (const t of backlog) {
+          if (t.sprintId) panelIds.add(t.sprintId);
+        }
+        if (teamId) panelIds.add(teamId);
+        const focus = getMemberSprintFocus(m.id);
+        if (focus) panelIds.add(focus);
+        for (const s of inProgress) panelIds.add(s.id);
+
+        const canonical = resolveScrumEntrySprintId(prevTasks, backlog, teamId);
+        const syncIds = memberSprintIdsForTaskSync(
+          next,
+          m.id,
+          [...panelIds],
+          teamId,
+          canonical
+        );
+        next = applyMemberTaskSelection(
+          next,
+          m.id,
+          syncIds,
+          prevTasks,
+          scrumDate,
+          backlog
+        );
+        changed = true;
+
+        const saveSprintId =
+          canonical ||
+          (backlog.length > 0 ? teamId : getMemberSprintFocus(m.id)) ||
+          "";
+        if (!saveSprintId) continue;
+
+        const fkSave = formKey(m.id, canonical || saveSprintId);
+        persistJobs.push({
+          memberId: m.id,
+          sprintId: saveSprintId,
+          form: next[fkSave] ?? buildFormFromHistory(scrumDate, m.id, saveSprintId),
+        });
+      }
+
+      return changed ? next : prev;
+    });
+
+    for (const job of persistJobs) {
+      const existing = findScrumEntry(scrumDate, job.memberId, job.sprintId);
+      void saveScrumEntry({
+        id: existing?.id,
+        date: scrumDate,
+        memberId: job.memberId,
+        sprintId: job.sprintId,
+        yesterday: job.form.yesterday.trim(),
+        today: job.form.today.trim(),
+        blockers: job.form.blockers.trim() || SCRUM_BLOCKER_NONE_LABEL,
+        selectedTasks: job.form.selectedTasks,
+        isCompleted: job.form.isCompleted,
+      }).catch((e) => {
+        console.warn("[DailyScrum] task carryover save failed", e);
+      });
+    }
+  }, [scrumDate, scrumHistoryRevision, prefsTick, lastJiraDataAt]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -205,29 +518,158 @@ export default function DailyScrum() {
   }, [activeMember, scrumDate]);
 
   const teamSprintId = useMemo(() => getTeamActiveSprintId(), [prefsTick]);
-  const inProgressSprints = useMemo(() => getInProgressSprints(), []);
+  const inProgressSprints = useMemo(() => getInProgressSprints(), [prefsTick, lastJiraDataAt]);
 
-  const memberSprints = useMemo(() => {
-    const from = getSprintsForMember(activeMember);
-    if (from.length > 0) return from;
-    const tid = getTeamActiveSprintId();
-    const t = getActiveJiraSprints().find((s) => s.id === tid);
-    return t ? [t] : [];
-  }, [activeMember, prefsTick]);
-  const memberSprintId = useMemo(() => getMemberSprintFocus(activeMember), [activeMember, prefsTick]);
-  const sprintsToRegister = useMemo(
-    () => getSprintsAvailableToRegister(activeMember),
-    [activeMember, prefsTick]
-  );
-  const memberBacklog = useMemo(
-    () => getMemberBacklog(activeMember, memberSprintId),
-    [activeMember, memberSprintId, prefsTick]
+  const assignedTasks = useMemo(
+    () => getMemberAssignedTasks(activeMember),
+    [activeMember, prefsTick, lastJiraDataAt]
   );
 
-  const currentMember = TEAM_MEMBERS.find((m) => m.id === activeMember)!;
-  const fk = formKey(activeMember, memberSprintId);
-  const currentForm = forms[fk] ?? buildFormFromHistory(scrumDate, activeMember, memberSprintId);
-  const sprintLabel = resolveSprintName(memberSprintId);
+  const visibleTasks = useMemo(
+    () => filterTasksByStatuses(assignedTasks, taskStatusFilter),
+    [assignedTasks, taskStatusFilter]
+  );
+
+  const panelSprintIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of assignedTasks) {
+      if (t.sprintId) ids.add(t.sprintId);
+    }
+    const teamId = getTeamActiveSprintId();
+    if (teamId) ids.add(teamId);
+    const focus = getMemberSprintFocus(activeMember);
+    if (focus) ids.add(focus);
+    for (const s of inProgressSprints) ids.add(s.id);
+    return [...ids];
+  }, [assignedTasks, activeMember, inProgressSprints, prefsTick, lastJiraDataAt]);
+
+  const panelSprints = useMemo(() => {
+    const byId = new Map(getActiveJiraSprints().map((s) => [s.id, s]));
+    return panelSprintIds.map((id) => byId.get(id)).filter((s): s is NonNullable<typeof s> => Boolean(s));
+  }, [panelSprintIds, prefsTick, lastJiraDataAt]);
+
+  const allowedTaskKeys = useMemo(
+    () => new Set(assignedTasks.map((t) => t.key)),
+    [assignedTasks]
+  );
+
+  const mergedSelectedTasks = useMemo(() => {
+    const raw = collectMergedSelectedTasks(
+      forms,
+      activeMember,
+      panelSprintIds,
+      teamSprintId,
+      allowedTaskKeys
+    );
+    return sanitizeSelectedTaskKeys(raw, assignedTasks);
+  }, [forms, activeMember, panelSprintIds, teamSprintId, allowedTaskKeys, assignedTasks]);
+
+  const canonicalSprintId = useMemo(
+    () => resolveScrumEntrySprintId(mergedSelectedTasks, assignedTasks, teamSprintId),
+    [mergedSelectedTasks, assignedTasks, teamSprintId]
+  );
+
+  const saveSprintId =
+    canonicalSprintId ||
+    (assignedTasks.length > 0 ? teamSprintId : getMemberSprintFocus(activeMember));
+
+  const fk = formKey(activeMember, canonicalSprintId);
+  const currentForm = forms[fk] ?? buildFormFromHistory(scrumDate, activeMember, canonicalSprintId);
+
+  useEffect(() => {
+    setBlockerUiMode(blockerFieldMode(currentForm.blockers));
+  }, [activeMember, scrumDate, canonicalSprintId]);
+
+  const sprintLabel = canonicalSprintId
+    ? resolveSprintName(canonicalSprintId)
+    : "담당 스프린트 없음";
+  const hasSelectableTasks = visibleTasks.some((t) => t.status !== "TODO");
+
+  const pickerTasks: ScrumTaskPickerItem[] = useMemo(() => {
+    const sprintNameById = new Map(panelSprints.map((s) => [s.id, s.name]));
+    return visibleTasks.map((task) => ({
+      task,
+      sprintName: sprintNameById.get(task.sprintId) ?? resolveSprintName(task.sprintId),
+    }));
+  }, [visibleTasks, panelSprints]);
+
+  const taskPickerEmptyMessage =
+    assignedTasks.length === 0
+      ? "JIRA 동기화·배정을 확인하세요"
+      : "선택한 상태의 담당 이슈가 없습니다. 상태 필터를 조정하세요.";
+
+  /** 분산된 selectedTasks를 멤버 스프린트 폼 전체에 동기화 */
+  useEffect(() => {
+    setForms((prev) => {
+      const nextKeys = collectMergedSelectedTasks(
+        prev,
+        activeMember,
+        panelSprintIds,
+        teamSprintId,
+        allowedTaskKeys
+      );
+      const canonical = resolveScrumEntrySprintId(nextKeys, assignedTasks, teamSprintId);
+      const k = formKey(activeMember, canonical);
+      const cur = prev[k] ?? buildFormFromHistory(scrumDate, activeMember, canonical);
+      const same =
+        nextKeys.length === cur.selectedTasks.length &&
+        nextKeys.every((key, i) => cur.selectedTasks[i] === key);
+      // #region agent log
+      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
+        body: JSON.stringify({
+          sessionId: "bf5f5d",
+          hypothesisId: "I",
+          location: "DailyScrum.tsx:sync-selected-effect",
+          message: "sync selectedTasks across sprints",
+          data: { nextKeys, curKeys: cur.selectedTasks, same, canonical },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      if (same) return prev;
+      const sanitized = sanitizeSelectedTaskKeys(nextKeys, assignedTasks);
+      return applyMemberTaskSelection(
+        prev,
+        activeMember,
+        memberSprintIdsForTaskSync(prev, activeMember, panelSprintIds, teamSprintId, canonical),
+        sanitized,
+        scrumDate,
+        assignedTasks
+      );
+    });
+  }, [activeMember, panelSprintIds, assignedTasks, teamSprintId, scrumDate, allowedTaskKeys, prefsTick, lastJiraDataAt]);
+
+  /** 담당 이슈가 1개뿐이면 자동 선택 (할 일 제외, 저장 전 0건 방지) */
+  useEffect(() => {
+    if (visibleTasks.length !== 1) return;
+    const only = visibleTasks[0]!;
+    if (only.status === "TODO") return;
+    const taskKey = only.key;
+    setForms((prev) => {
+      const nextKeys = sanitizeSelectedTaskKeys(
+        collectMergedSelectedTasks(
+          prev,
+          activeMember,
+          panelSprintIds,
+          teamSprintId,
+          allowedTaskKeys
+        ),
+        assignedTasks
+      );
+      if (nextKeys.length > 0) return prev;
+      const canonical = resolveScrumEntrySprintId([taskKey], assignedTasks, teamSprintId);
+      return applyMemberTaskSelection(
+        prev,
+        activeMember,
+        memberSprintIdsForTaskSync(prev, activeMember, panelSprintIds, teamSprintId, canonical),
+        [taskKey],
+        scrumDate,
+        assignedTasks
+      );
+    });
+  }, [visibleTasks, assignedTasks, activeMember, panelSprintIds, teamSprintId, scrumDate, allowedTaskKeys]);
 
   const patchForm = (patch: Partial<ScrumForm>) => {
     setSaveError(null);
@@ -243,19 +685,27 @@ export default function DailyScrum() {
 
   const handleSave = () => {
     const form = forms[fk] ?? currentForm;
-    if (!isScrumFormSavable(form)) {
-      setSaveError("백로그 선택, 전일 성과, 오늘 계획을 모두 입력한 뒤 저장할 수 있습니다.");
+    const requireTaskSelection = hasSelectableTasks;
+    const validationMsg = getScrumSaveValidationMessage(form, { requireTaskSelection });
+    if (!isScrumFormSavable(form, { requireTaskSelection })) {
+      setSaveError(validationMsg ?? "입력 내용을 확인한 뒤 저장할 수 있습니다.");
+      setHighlightTaskSelection(requireTaskSelection && form.selectedTasks.length === 0);
       return;
     }
-    const existing = findScrumEntry(scrumDate, activeMember, memberSprintId);
+    setHighlightTaskSelection(false);
+    if (!saveSprintId) {
+      setSaveError("담당 스프린트·이슈가 없어 저장할 수 없습니다. JIRA 배정·스프린트 등록을 확인하세요.");
+      return;
+    }
+    const existing = findScrumEntry(scrumDate, activeMember, saveSprintId);
     void saveScrumEntry({
       id: existing?.id,
       date: scrumDate,
       memberId: activeMember,
-      sprintId: memberSprintId,
+      sprintId: saveSprintId,
       yesterday: form.yesterday.trim(),
       today: form.today.trim(),
-      blockers: form.blockers.trim() || "없음",
+      blockers: form.blockers.trim() || SCRUM_BLOCKER_NONE_LABEL,
       selectedTasks: form.selectedTasks,
       isCompleted: form.isCompleted,
     }).then(() => {
@@ -267,287 +717,393 @@ export default function DailyScrum() {
     });
   };
 
-  const applyMemberSprintFilter = (sprintId: string) => {
-    setMemberSprintFocus(activeMember, sprintId);
-    const k = formKey(activeMember, sprintId);
-    setForms((prev) => ({
-      ...prev,
-      [k]: prev[k] ?? buildFormFromHistory(scrumDate, activeMember, sprintId),
-    }));
-  };
-
-  const handleRegisterSprint = (sprintId: string) => {
-    if (!sprintId) return;
-    registerMemberSprint(activeMember, sprintId);
-    applyMemberSprintFilter(sprintId);
-  };
-
   const noPrevHint = `${addCalendarDays(scrumDate, -1)} · ${sprintLabel} 기록 없음`;
 
+  const handleLoadPreviousToYesterday = () => {
+    const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, canonicalSprintId, scrumDate);
+    if (!prev?.today.trim()) {
+      setYesterdayCarryoverHint(noPrevHint);
+      return;
+    }
+    patchForm({ yesterday: prev.today });
+    setYesterdayCarryoverHint(`${prev.date} 오늘 계획 → 전일 성과 반영`);
+  };
+
   const handleLoadPreviousPlan = () => {
-    const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, memberSprintId, scrumDate);
-    if (!prev) {
+    const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, canonicalSprintId, scrumDate);
+    if (!prev?.today.trim()) {
       setPlanCarryoverHint(noPrevHint);
       return;
     }
-    const carried = buildCarryoverFromPrevious(prev, { fillYesterdayFromPrevPlan: true });
-    setForms((f) => ({
-      ...f,
-      [fk]: {
-        ...(f[fk] ?? currentForm),
-        yesterday: carried.yesterday,
-        today: carried.today,
-        selectedTasks: prev.selectedTasks,
-      },
-    }));
-    setPlanCarryoverHint(`${prev.date} 계획 → 전일 성과·오늘 계획 반영`);
+    patchForm({ today: prev.today });
+    setPlanCarryoverHint(`${prev.date} 오늘 계획 반영`);
   };
 
   const handleLoadPreviousBlockers = () => {
-    const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, memberSprintId, scrumDate);
+    const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, canonicalSprintId, scrumDate);
     if (!prev) {
       setBlockersCarryoverHint(noPrevHint);
       return;
     }
+    const blockers = normalizeBlockersFromStorage(prev.blockers);
     setForms((f) => ({
       ...f,
-      [fk]: { ...(f[fk] ?? currentForm), blockers: prev.blockers },
+      [fk]: {
+        ...(f[fk] ?? currentForm),
+        blockers,
+      },
     }));
+    setBlockerUiMode(blockerFieldMode(blockers));
     setBlockersCarryoverHint(`${prev.date} 병목 반영`);
   };
 
-  const loadPrevBtnStyle = {
-    background: "rgba(34,211,238,0.1)",
-    border: "1px solid rgba(34,211,238,0.25)",
-    color: "var(--primary)",
-  } as const;
+  const handleBlockerModeChange = (mode: "none" | "custom") => {
+    setBlockerUiMode(mode);
+    if (mode === "none") {
+      updateForm("blockers", SCRUM_BLOCKER_NONE_LABEL);
+    } else if (
+      currentForm.blockers === SCRUM_BLOCKER_NONE_LABEL ||
+      currentForm.blockers === "없음"
+    ) {
+      updateForm("blockers", "");
+    }
+  };
+
+  const loadPrevBtnClass =
+    "inline-flex shrink-0 items-center gap-1 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-primary/15 active:scale-[0.98]";
+
+  const loadYesterdayPrevBtn = (
+    <button type="button" onClick={handleLoadPreviousToYesterday} className={loadPrevBtnClass}>
+      <History className="w-3 h-3" />
+      전일 불러오기
+    </button>
+  );
 
   const loadPlanPrevBtn = (
-    <button
-      type="button"
-      onClick={handleLoadPreviousPlan}
-      className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-medium shrink-0"
-      style={loadPrevBtnStyle}
-    >
+    <button type="button" onClick={handleLoadPreviousPlan} className={loadPrevBtnClass}>
       <History className="w-3 h-3" />
       전일 불러오기
     </button>
   );
 
   const loadBlockersPrevBtn = (
-    <button
-      type="button"
-      onClick={handleLoadPreviousBlockers}
-      className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-medium shrink-0"
-      style={loadPrevBtnStyle}
-    >
+    <button type="button" onClick={handleLoadPreviousBlockers} className={loadPrevBtnClass}>
       <History className="w-3 h-3" />
       전일 불러오기
     </button>
   );
 
-  const filledCount = TEAM_MEMBERS.filter((m) => {
-    const sid = getMemberSprintFocus(m.id);
-    const f = forms[formKey(m.id, sid)];
-    return !!(f?.yesterday || f?.today);
-  }).length;
+  const persistTaskSelection = (form: ScrumForm, sprintId: string) => {
+    const existing = findScrumEntry(scrumDate, activeMember, sprintId);
+    void saveScrumEntry({
+      id: existing?.id,
+      date: scrumDate,
+      memberId: activeMember,
+      sprintId,
+      yesterday: form.yesterday.trim(),
+      today: form.today.trim(),
+      blockers: form.blockers.trim() || SCRUM_BLOCKER_NONE_LABEL,
+      selectedTasks: form.selectedTasks,
+      isCompleted: form.isCompleted,
+    }).catch((e) => {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    });
+  };
+
+  const handleToggleBacklogTask = (taskKey: string) => {
+    setSaveError(null);
+    setHighlightTaskSelection(false);
+
+    const task = assignedTasks.find((t) => t.key === taskKey);
+    const isSelecting = !mergedSelectedTasks.includes(taskKey);
+    // #region agent log
+    fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
+      body: JSON.stringify({
+        sessionId: "bf5f5d",
+        hypothesisId: "F",
+        location: "DailyScrum.tsx:toggle-start",
+        message: "task toggle",
+        data: {
+          taskKey,
+          isSelecting,
+          mergedBefore: mergedSelectedTasks,
+          taskStatus: task?.status,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    if (task?.status === "TODO" && isSelecting) {
+      setTodoHintTaskKey(taskKey);
+      setTodoHintOpen(true);
+      return;
+    }
+
+    setForms((prev) => {
+      const merged = new Set(
+        sanitizeSelectedTaskKeys(
+          collectMergedSelectedTasks(
+            prev,
+            activeMember,
+            panelSprintIds,
+            teamSprintId,
+            allowedTaskKeys
+          ),
+          assignedTasks
+        )
+      );
+      if (merged.has(taskKey)) merged.delete(taskKey);
+      else merged.add(taskKey);
+      const nextKeys = sanitizeSelectedTaskKeys([...merged], assignedTasks);
+      const canonical = resolveScrumEntrySprintId(nextKeys, assignedTasks, teamSprintId);
+      const next = applyMemberTaskSelection(
+        prev,
+        activeMember,
+        memberSprintIdsForTaskSync(prev, activeMember, panelSprintIds, teamSprintId, canonical),
+        nextKeys,
+        scrumDate,
+        assignedTasks
+      );
+      const persistSprintId =
+        canonical || (assignedTasks.length > 0 ? teamSprintId : getMemberSprintFocus(activeMember));
+      if (persistSprintId) {
+        const k = formKey(activeMember, persistSprintId);
+        const form = next[k] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
+        persistTaskSelection(form, persistSprintId);
+      }
+      // #region agent log
+      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
+        body: JSON.stringify({
+          sessionId: "bf5f5d",
+          hypothesisId: "F",
+          location: "DailyScrum.tsx:toggle-end",
+          message: "task toggle applied",
+          data: { taskKey, nextKeys, canonical, persistSprintId },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      return next;
+    });
+  };
+
+  const handleClearAllSelectedTasks = () => {
+    setSaveError(null);
+    setHighlightTaskSelection(false);
+    setForms((prev) => {
+      const canonical = resolveScrumEntrySprintId([], assignedTasks, teamSprintId);
+      const next = applyMemberTaskSelection(
+        prev,
+        activeMember,
+        memberSprintIdsForTaskSync(prev, activeMember, panelSprintIds, teamSprintId, canonical),
+        [],
+        scrumDate,
+        assignedTasks
+      );
+      const persistSprintId =
+        canonical || (assignedTasks.length > 0 ? teamSprintId : getMemberSprintFocus(activeMember));
+      if (persistSprintId) {
+        const k = formKey(activeMember, persistSprintId);
+        const form = next[k] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
+        persistTaskSelection(form, persistSprintId);
+      }
+      return next;
+    });
+  };
+
+  const isToday = scrumDate === todayIso();
+
+  const clearCarryoverHints = () => {
+    setYesterdayCarryoverHint(null);
+    setPlanCarryoverHint(null);
+    setBlockersCarryoverHint(null);
+    setSaveError(null);
+  };
+
+  const shiftScrumDate = (deltaDays: number) => {
+    setScrumDate(addCalendarDays(scrumDate, deltaDays));
+    clearCarryoverHints();
+  };
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-6.75rem)] max-h-[calc(100dvh-6.75rem)] min-h-[32rem] gap-2 text-[13px] overflow-hidden">
-      {/* 툴바: 일자 선택 + 저장 */}
-      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 shrink-0">
-        <p className="text-[11px] tabular-nums pt-1" style={{ color: "var(--muted-foreground)" }}>
-          {filledCount}/{TEAM_MEMBERS.length}명 · {scrumDate}
-        </p>
-        <div className="flex flex-col items-end gap-1 ml-auto min-w-0">
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <CalendarDays className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--muted-foreground)" }} />
-            <input
-              id="scrum-date"
-              type="date"
-              value={scrumDate}
-              onChange={(e) => {
-                setScrumDate(e.target.value);
-                setPlanCarryoverHint(null);
-                setBlockersCarryoverHint(null);
-                setSaveError(null);
-              }}
-              className="h-7 rounded-md px-1.5 text-[11px] outline-none"
-              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--foreground)" }}
-            />
-            <Link
-              to={ROUTES.SCRUM_HISTORY}
-              className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md"
-              style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "var(--foreground)" }}
-            >
-              <Table2 className="w-3 h-3" />
-              일지
-            </Link>
-          </div>
-          <motion.div className="flex flex-wrap items-center justify-end gap-2">
-            <label className="inline-flex items-center gap-1.5 text-[10px] cursor-pointer select-none">
-              <Checkbox
-                checked={currentForm.isCompleted}
-                onCheckedChange={(v) => {
-                  const completed = v === true;
-                  setForms((prev) => {
-                    const next = { ...prev };
-                    for (const key of Object.keys(next)) {
-                      if (!key.startsWith(`${activeMember}::`)) continue;
-                      next[key] = { ...next[key]!, isCompleted: completed };
-                    }
-                    return next;
-                  });
-                }}
-              />
-              <span style={{ color: "var(--muted-foreground)" }}>일일 업무 완료</span>
-            </label>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-md text-[11px] font-semibold min-w-[7.5rem]"
-              style={{
-                background: "linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 60%, black))",
-                color: "var(--primary-foreground)",
-              }}
-            >
-              <Save className="w-3.5 h-3.5" />
-              {currentMember.name} 저장
-            </button>
-          </motion.div>
-          {isSupabaseConfigured() && (
-            <p className="text-[9px] text-right" style={{ color: "var(--muted-foreground)" }}>
-              저장 시 Supabase daily_reports · scrum_entries 반영
-            </p>
-          )}
-          {saveError && (
-            <p className="text-[10px] text-right max-w-[16rem] leading-tight" style={{ color: "#fca5a5" }}>
-              {saveError}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* 담당자 선택 */}
-      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-        {TEAM_MEMBERS.map((m) => {
+    <div className="flex h-[calc(100dvh-5.25rem)] max-h-[calc(100dvh-5.25rem)] min-h-[28rem] flex-col gap-2 overflow-hidden text-xs">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        {DAILY_SCRUM_MEMBERS.map((m) => {
           const on = activeMember === m.id;
-          const sid = getMemberSprintFocus(m.id);
-          const f = forms[formKey(m.id, sid)];
-          const has = !!(f?.yesterday || f?.today);
+          const has = memberFormHasContent(forms, m.id);
           return (
             <button
               key={m.id}
               type="button"
               onClick={() => {
                 setActiveMember(m.id);
+                setYesterdayCarryoverHint(null);
                 setPlanCarryoverHint(null);
                 setBlockersCarryoverHint(null);
                 setSaveError(null);
               }}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors"
-              style={{
-                background: on ? `${m.color}18` : "rgba(255,255,255,0.03)",
-                borderColor: on ? `${m.color}55` : "rgba(255,255,255,0.08)",
-                color: on ? m.color : "var(--muted-foreground)",
-              }}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-300 ease-in-out hover:scale-[1.01] active:scale-[0.98]",
+                on ? "shadow-sm" : "border-border/60 bg-card/80 text-muted-foreground hover:bg-muted/50"
+              )}
+              style={
+                on
+                  ? { background: `${m.color}14`, borderColor: `${m.color}44`, color: m.color }
+                  : undefined
+              }
             >
               <span
-                className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold"
+                className="flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold"
                 style={{ background: `${m.color}22`, color: m.color }}
               >
                 {m.avatar}
               </span>
               {m.name}
-              {has && <span className="w-1.5 h-1.5 rounded-full bg-green-400" />}
+              {has && <span className="h-1 w-1 rounded-full bg-green-400" />}
             </button>
           );
         })}
-      </div>
-
-      <div
-        className="flex flex-wrap items-center gap-2 shrink-0 py-1.5 px-2 rounded-md border"
-        style={{ borderColor: "rgba(167,139,250,0.2)", background: "rgba(167,139,250,0.04)" }}
-      >
-        <Layers className="w-3.5 h-3.5 shrink-0" style={{ color: "#c4b5fd" }} />
-        <span className="text-[10px] font-medium shrink-0" style={{ color: "#c4b5fd" }}>
-          {currentMember.name} 스프린트
-        </span>
-        {memberSprints.map((s) => {
-          const on = s.id === memberSprintId;
-          const stateLabel = s.state === "active" ? "진행" : s.state === "future" ? "예정" : "종료";
-          return (
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <button
+            type="button"
+            onClick={() => shiftScrumDate(-1)}
+            className={cn(ui.btnSecondary, "h-8 w-8 shrink-0 px-0")}
+            title="전일"
+            aria-label="전일"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <input
+            id="scrum-date"
+            type="date"
+            value={scrumDate}
+            onChange={(e) => {
+              setScrumDate(e.target.value);
+              clearCarryoverHints();
+            }}
+            className={cn(ui.input, "h-8 w-[9.5rem] shrink-0 px-2 text-xs tabular-nums")}
+          />
+          <button
+            type="button"
+            onClick={() => shiftScrumDate(1)}
+            className={cn(ui.btnSecondary, "h-8 w-8 shrink-0 px-0")}
+            title="익일"
+            aria-label="익일"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          {!isToday && (
             <button
-              key={s.id}
               type="button"
-              onClick={() => applyMemberSprintFilter(s.id)}
-              className="text-[10px] px-2 py-0.5 rounded-full border font-medium"
-              style={{
-                background: on ? "rgba(167,139,250,0.18)" : "transparent",
-                borderColor: on ? "rgba(167,139,250,0.5)" : "rgba(255,255,255,0.1)",
-                color: on ? "#e9d5ff" : "var(--muted-foreground)",
+              onClick={() => {
+                setScrumDate(todayIso());
+                clearCarryoverHints();
               }}
+              className={cn(ui.btnSecondary, "h-8 px-2 text-[10px] font-medium")}
             >
-              {s.name}
-              <span className="opacity-60 ml-0.5">({stateLabel})</span>
+              오늘
             </button>
-          );
-        })}
-        {sprintsToRegister.length > 0 && (
-          <label className="inline-flex items-center gap-1 text-[10px] ml-auto">
-            <Plus className="w-3 h-3" style={{ color: "var(--muted-foreground)" }} />
-            <select
-              className="h-6 rounded px-1 outline-none max-w-[9rem]"
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                color: "var(--foreground)",
-              }}
-              defaultValue=""
-              onChange={(e) => {
-                handleRegisterSprint(e.target.value);
-                e.target.value = "";
-              }}
-            >
-              <option value="" disabled>
-                스프린트 등록
-              </option>
-              {sprintsToRegister.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+          )}
+          <Link
+            to={ROUTES.SCRUM_HISTORY}
+            className={cn(ui.btnSecondary, "h-8 gap-1 px-2.5 text-xs")}
+          >
+            <Table2 className="w-3 h-3" />
+            일지
+          </Link>
+          <button
+            type="button"
+            onClick={handleSave}
+            className={cn(ui.btnPrimary, "h-8 min-w-[4.5rem] gap-1 px-3 text-xs")}
+            style={saveButtonStyle()}
+          >
+            <Save className="w-3.5 h-3.5" />
+            저장
+          </button>
+          {saveError ? (
+            <p className="w-full basis-full text-right text-[10px] leading-tight text-red-600 sm:w-auto sm:basis-auto">
+              {saveError}
+            </p>
+          ) : null}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[9.5rem_1fr_10.5rem] gap-2 flex-1 min-h-0">
-        <Card className="p-2 flex flex-col min-h-0 overflow-hidden">
-          <p className="text-[11px] font-semibold shrink-0 mb-0.5" style={{ color: "var(--foreground)" }}>
-            백로그
-          </p>
-          <p className="text-[9px] shrink-0 mb-1" style={{ color: "var(--muted-foreground)" }}>
-            {sprintLabel} · {currentForm.selectedTasks.length}건 선택
-          </p>
-          <ScrumBacklogPicker
-            tasks={memberBacklog}
-            selectedKeys={currentForm.selectedTasks}
-            onChange={(keys) => patchForm({ selectedTasks: keys })}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 lg:grid-cols-[17.2rem_1fr_17.2rem]">
+        <Card
+          className={cn(
+            "flex min-h-0 flex-col overflow-hidden p-3 transition-shadow",
+            highlightTaskSelection && "ring-2 ring-amber-400/80"
+          )}
+        >
+          <div className="mb-1.5 shrink-0">
+            <div className="flex items-start justify-between gap-1">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">담당 이슈</p>
+                <p className="text-xs text-muted-foreground">
+                  {assignedTasks.length === 0
+                    ? "JIRA 동기화·배정을 확인하세요"
+                    : `${mergedSelectedTasks.length}건 선택 · ${visibleTasks.length}건 표시`}
+                </p>
+              </div>
+              {mergedSelectedTasks.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={handleClearAllSelectedTasks}
+                  className="shrink-0 rounded-md border border-border/60 px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  전체 해제
+                </button>
+              ) : null}
+            </div>
+            <ScrumTaskStatusFilter
+              className="mt-2"
+              value={taskStatusFilter}
+              onChange={setTaskStatusFilter}
+            />
+          </div>
+          <ScrumTaskPicker
+            tasks={pickerTasks}
+            selectedKeys={mergedSelectedTasks}
+            onToggleTask={handleToggleBacklogTask}
+            emptyMessage={taskPickerEmptyMessage}
           />
         </Card>
 
-        <div className="grid grid-rows-3 gap-2 min-h-0">
-          <Card className="p-2 flex flex-col min-h-0 overflow-hidden">
+        <div className="grid min-h-0 grid-rows-3 gap-2">
+          <Card className="flex min-h-0 flex-col overflow-hidden p-2.5">
             <ScrumField
               icon="📋"
               title="전일 성과"
-              hint={currentForm.selectedTasks.length > 0 ? `선택 ${currentForm.selectedTasks.length}건` : "백로그 선택"}
+              hint={
+                mergedSelectedTasks.length > 0
+                  ? `선택 ${mergedSelectedTasks.length}건 · 클릭으로 해제`
+                  : hasSelectableTasks
+                    ? "좌측 이슈 클릭으로 선택 (필수)"
+                    : "좌측 이슈 클릭으로 선택"
+              }
               value={currentForm.yesterday}
               onChange={(v) => updateForm("yesterday", v)}
+              action={loadYesterdayPrevBtn}
             />
+            {yesterdayCarryoverHint && (
+              <p
+                className={cn(
+                  "mt-1 shrink-0 px-1 text-[10px]",
+                  yesterdayCarryoverHint.includes("없음") ? "text-amber-600" : "text-emerald-600"
+                )}
+              >
+                {yesterdayCarryoverHint}
+              </p>
+            )}
           </Card>
-          <Card className="p-2 flex flex-col min-h-0 overflow-hidden">
+          <Card className="flex min-h-0 flex-col overflow-hidden p-2.5">
             <ScrumField
               icon="🎯"
               title="오늘 계획"
@@ -558,31 +1114,29 @@ export default function DailyScrum() {
             />
             {planCarryoverHint && (
               <p
-                className="text-[9px] mt-0.5 px-1 shrink-0"
-                style={{
-                  color: planCarryoverHint.includes("없음") ? "#fbbf24" : "#34d399",
-                }}
+                className={cn(
+                  "mt-1 shrink-0 px-1 text-[10px]",
+                  planCarryoverHint.includes("없음") ? "text-amber-600" : "text-emerald-600"
+                )}
               >
                 {planCarryoverHint}
               </p>
             )}
           </Card>
-          <Card className="p-2 flex flex-col min-h-0 overflow-hidden">
-            <ScrumField
-              icon="🚧"
-              title="병목"
-              hint="없으면 '없음'"
+          <Card className="flex min-h-0 flex-col overflow-hidden p-2.5">
+            <ScrumBlockerField
+              mode={blockerUiMode}
+              onModeChange={handleBlockerModeChange}
               value={currentForm.blockers}
               onChange={(v) => updateForm("blockers", v)}
-              accent="danger"
               action={loadBlockersPrevBtn}
             />
             {blockersCarryoverHint && (
               <p
-                className="text-[9px] mt-0.5 px-1 shrink-0"
-                style={{
-                  color: blockersCarryoverHint.includes("없음") ? "#fbbf24" : "#34d399",
-                }}
+                className={cn(
+                  "mt-1 shrink-0 px-1 text-[10px]",
+                  blockersCarryoverHint.includes("없음") ? "text-amber-600" : "text-emerald-600"
+                )}
               >
                 {blockersCarryoverHint}
               </p>
@@ -590,66 +1144,46 @@ export default function DailyScrum() {
           </Card>
         </div>
 
-        <Card className="p-2 flex flex-col min-h-0 overflow-hidden">
-          <p className="text-[11px] font-semibold shrink-0 mb-1" style={{ color: "var(--foreground)" }}>
-            과거 기록
-          </p>
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1 pr-0.5">
-            {getAllScrumHistory()
-              .filter((s) => s.memberId === activeMember)
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .slice(0, 8)
-              .map((entry) => {
-                const spName = resolveSprintName(entry.sprintId);
-                return (
-                  <div
-                    key={entry.id}
-                    className="rounded p-1.5"
-                    style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
-                  >
-                    <div className="flex justify-between gap-1 text-[9px] mb-0.5">
-                      <span style={{ color: "var(--primary)" }}>{entry.date}</span>
-                      <span className="truncate opacity-70" style={{ color: "var(--muted-foreground)" }}>
-                        {spName}
-                      </span>
-                    </div>
-                    <p className="text-[10px] line-clamp-2 leading-tight" style={{ color: "var(--muted-foreground)" }}>
-                      {entry.today}
-                    </p>
+        <Card className="flex min-h-0 flex-col overflow-hidden p-3">
+          <div className="mb-1.5 shrink-0">
+            <p className="text-sm font-semibold text-foreground">과거 기록</p>
+            <p className="text-xs text-muted-foreground">일자별 오늘 계획</p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
+            {pastTodayPlansByDate.length === 0 ? (
+              <p className="px-1 py-2 text-xs text-muted-foreground">
+                저장된 오늘 계획이 없습니다.
+              </p>
+            ) : (
+              pastTodayPlansByDate.map((day) => (
+                <div
+                  key={day.date}
+                  className="rounded-lg border border-border/50 bg-muted/20 p-2.5"
+                >
+                  <p className="mb-1 text-xs font-semibold text-primary">{day.dateLabel}</p>
+                  <div className="space-y-2">
+                    {day.plans.map((plan) => {
+                      const spName = resolveSprintName(plan.sprintId);
+                      const showSprint = day.plans.length > 1;
+                      return (
+                        <div key={plan.id}>
+                          {showSprint ? (
+                            <p className="mb-0.5 truncate text-[11px] text-muted-foreground" title={spName}>
+                              {spName}
+                            </p>
+                          ) : null}
+                          <p className="whitespace-pre-wrap text-xs leading-snug text-foreground">
+                            {plan.today}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))
+            )}
           </div>
         </Card>
-      </div>
-
-      {/* 팀 기본 스프린트 — 하단 한 줄 */}
-      <div
-        className="flex flex-wrap items-center gap-2 shrink-0 py-1.5 px-2 rounded-md border"
-        style={{ borderColor: "rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}
-      >
-        <Pin className="w-3 h-3 shrink-0" style={{ color: "var(--muted-foreground)" }} />
-        <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>
-          팀 기본 스프린트 (대시보드)
-        </span>
-        {inProgressSprints.map((s) => {
-          const on = s.id === teamSprintId;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setTeamActiveSprintId(s.id)}
-              className="text-[10px] px-2 py-0.5 rounded-full border"
-              style={{
-                background: on ? "rgba(34,211,238,0.12)" : "transparent",
-                borderColor: on ? "rgba(34,211,238,0.35)" : "rgba(255,255,255,0.08)",
-                color: on ? "var(--primary)" : "var(--muted-foreground)",
-              }}
-            >
-              {s.name}
-            </button>
-          );
-        })}
       </div>
 
       <AnimatePresence>
@@ -658,14 +1192,32 @@ export default function DailyScrum() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
-            className="fixed bottom-4 right-4 flex items-center gap-2 px-3 py-2 rounded-lg text-xs shadow-lg z-50"
-            style={{ background: "#1e293b", border: "1px solid rgba(52,211,153,0.3)", color: "#34d399" }}
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl border border-emerald-200/80 bg-card px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg ring-1 ring-emerald-100"
           >
             <ClipboardCheck className="w-4 h-4" />
-            {currentMember.name} 저장 완료
+            저장 완료
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AlertDialog open={todoHintOpen} onOpenChange={setTodoHintOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>할 일 상태 이슈</AlertDialogTitle>
+            <AlertDialogDescription className="text-left leading-relaxed">
+              {todoHintTaskKey ? (
+                <span className="font-mono text-foreground">{todoHintTaskKey}</span>
+              ) : null}
+              {todoHintTaskKey ? " 은(는) " : ""}
+              JIRA에서 <strong>진행 중</strong>으로 변경한 뒤 <strong>JIRA 동기화</strong>를 실행하면 데일리
+              스크럼 담당 이슈에 반영되어 선택·등록할 수 있습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setTodoHintOpen(false)}>확인</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,0 +1,127 @@
+/* 팀 전체 일지 — 헤더·바디 동일 grid-template-columns (가상 스크롤) */
+
+.team-daily-log-grid {
+  --tdl-row-h: 2.25rem;
+  --tdl-table-min-width: 44rem;
+  /* 11 + 21 + 24 + 24 + 20 = 100% */
+  --tdl-grid-cols: 11% 21% 24% 24% 20%;
+  min-width: 0;
+}
+
+.team-daily-log-grid__scroll {
+  max-height: min(70vh, 36rem);
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.team-daily-log-grid__scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.team-daily-log-grid__scroll::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+}
+
+.team-daily-log-grid__scroll::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+.team-daily-log-grid__inner {
+  min-width: var(--tdl-table-min-width);
+  width: 100%;
+}
+
+/* 헤더·바디 행 — 동일 5열 그리드 */
+.team-daily-log-grid__header-row,
+.team-daily-log-grid__body-row {
+  display: grid;
+  grid-template-columns: var(--tdl-grid-cols);
+  width: 100%;
+  min-width: var(--tdl-table-min-width);
+  box-sizing: border-box;
+}
+
+.team-daily-log-grid__header-row {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  min-height: 2.5rem;
+  align-items: center;
+  border-bottom: 1px solid rgb(226 232 240);
+  background: rgb(248 250 252);
+}
+
+.dark .team-daily-log-grid__header-row {
+  border-bottom-color: rgb(51 65 85);
+  background: rgb(30 41 59);
+}
+
+.team-daily-log-grid__header-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0 0.5rem;
+  box-sizing: border-box;
+}
+
+.team-daily-log-grid__header-cell--member {
+  padding-left: 0.65rem;
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.team-daily-log-grid__header-cell--tasks {
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.team-daily-log-grid__body {
+  position: relative;
+  width: 100%;
+}
+
+.team-daily-log-grid__body-row {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: var(--tdl-row-h);
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+
+.team-daily-log-grid__body-row--muted {
+  opacity: 0.58;
+}
+
+.team-daily-log-grid__body-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.team-daily-log-grid__body-cell--member {
+  padding-left: 0.65rem;
+  border-right: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.team-daily-log-grid__body-cell--tasks {
+  border-right: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+
+.team-daily-log-grid__member {
+  width: 100%;
+  min-width: 0;
+}
+
+.team-daily-log-grid__empty {
+  color: var(--muted-foreground);
+  font-style: italic;
+  font-size: 11px;
+}

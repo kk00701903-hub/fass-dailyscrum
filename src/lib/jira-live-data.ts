@@ -1,6 +1,8 @@
 import { getActiveJiraSprints, getActiveJiraTasks } from "@/lib/jira-data-registry";
+import { JIRA_BACKLOG_SPRINT_ID } from "@/lib/jira-sprint-map";
 import type { Blocker, JiraTask, Sprint, TaskStatus } from "@/lib/index";
-import { STATUS_CONFIG, TEAM_MEMBERS } from "@/lib/index";
+import { STATUS_CONFIG, TEAM_MEMBERS, type TeamMember } from "@/lib/index";
+import { getMembersForAnalytics } from "@/lib/team-member-preferences";
 
 export const EMPTY_SPRINT: Sprint = {
   id: "",
@@ -12,6 +14,7 @@ export const EMPTY_SPRINT: Sprint = {
 };
 
 export function resolveSprintName(sprintId: string): string {
+  if (sprintId === JIRA_BACKLOG_SPRINT_ID) return "백로그";
   return getActiveJiraSprints().find((s) => s.id === sprintId)?.name ?? sprintId;
 }
 
@@ -56,8 +59,11 @@ export function statusDistributionFromTasks(tasks: JiraTask[] = getActiveJiraTas
     .filter((row) => row.value > 0);
 }
 
-export function memberVelocityFromTasks(tasks: JiraTask[] = getActiveJiraTasks()) {
-  return TEAM_MEMBERS.map((m) => {
+export function memberVelocityFromTasks(
+  tasks: JiraTask[] = getActiveJiraTasks(),
+  members: TeamMember[] = getMembersForAnalytics()
+) {
+  return members.map((m) => {
     const memberTasks = tasks.filter((t) => t.assignee.id === m.id);
     return {
       name: m.name,
@@ -72,6 +78,21 @@ export function memberVelocityFromTasks(tasks: JiraTask[] = getActiveJiraTasks()
   }).filter((row) => row.completed + row.inProgress + row.todo > 0);
 }
 
+/** 팀원별 전체 태스크 대비 완료(DONE) 건수 */
+export function memberTaskCompletionCounts(
+  tasks: JiraTask[],
+  memberId: string
+): { total: number; done: number; pct: number } {
+  const memberTasks = tasks.filter((t) => t.assignee.id === memberId);
+  const done = memberTasks.filter((t) => t.status === "DONE").length;
+  const total = memberTasks.length;
+  return {
+    total,
+    done,
+    pct: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+}
+
 /** JIRA 일별 이력 없음 — 잔여 SP 스냅샷 1점만 표시 */
 export function burndownFromTasks(tasks: JiraTask[] = getActiveJiraTasks()) {
   const remaining = tasks
@@ -82,4 +103,13 @@ export function burndownFromTasks(tasks: JiraTask[] = getActiveJiraTasks()) {
   return [
     { day: "현재", remaining, ideal: remaining },
   ];
+}
+
+export function burndownSummaryFromTasks(tasks: JiraTask[] = getActiveJiraTasks()) {
+  const total = tasks.reduce((s, t) => s + t.storyPoints, 0);
+  const done = tasks.filter((t) => t.status === "DONE").reduce((s, t) => s + t.storyPoints, 0);
+  const remaining = tasks
+    .filter((t) => t.status !== "DONE")
+    .reduce((s, t) => s + t.storyPoints, 0);
+  return { remaining, done, total };
 }

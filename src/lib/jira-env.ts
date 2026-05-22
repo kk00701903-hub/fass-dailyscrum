@@ -1,17 +1,19 @@
 /** JIRA Cloud 연동용 환경 변수 (`VITE_*` — 개발 서버/빌드 시 주입). */
 
+import { normalizeJiraCredential } from "@/lib/jira-basic-auth";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 export function getJiraBaseUrlFromEnv(): string {
-  return import.meta.env.VITE_JIRA_BASE_URL?.trim() ?? "";
+  return normalizeJiraCredential(import.meta.env.VITE_JIRA_BASE_URL);
 }
 
 export function getJiraEmailFromEnv(): string {
-  return import.meta.env.VITE_JIRA_EMAIL?.trim() ?? "";
+  return normalizeJiraCredential(import.meta.env.VITE_JIRA_EMAIL);
 }
 
+/** 브라우저·Vite 프록시 — `VITE_JIRA_API_TOKEN` ( `JIRA_API_TOKEN` 은 Node/Edge 전용 ) */
 export function getJiraApiTokenFromEnv(): string {
-  return import.meta.env.VITE_JIRA_API_TOKEN?.trim() ?? "";
+  return normalizeJiraCredential(import.meta.env.VITE_JIRA_API_TOKEN);
 }
 
 export function hasJiraApiTokenFromEnv(): boolean {
@@ -30,6 +32,11 @@ export function getJiraBoardIdFromEnv(): string {
 export function getJiraStoryPointsFieldIdFromEnv(): string {
   const v = import.meta.env.VITE_JIRA_STORY_POINTS_FIELD?.trim();
   return v || "customfield_10016";
+}
+
+/** 시작일 커스텀 필드 id (미설정 시 customfield_10015 시도 — 사이트마다 다름) */
+export function getJiraStartDateFieldIdFromEnv(): string {
+  return import.meta.env.VITE_JIRA_START_DATE_FIELD?.trim() ?? "";
 }
 
 /** 브라우저에서 JIRA → Supabase 동기화 가능 여부 */

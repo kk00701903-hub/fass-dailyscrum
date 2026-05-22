@@ -19,6 +19,7 @@ import {
   jiraSearchSmoke,
   isPlaceholderJiraBase,
 } from "../scripts/jira-test-lib.mjs";
+import { parseFwkTestKeys } from "./fixtures/fwk-kim-golden.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const env = mergeProcessEnv(loadEnvLocal(root));
@@ -54,6 +55,43 @@ describe("Jira API integration", () => {
       );
       const data = r.json;
       assert.ok(Array.isArray(data?.issues), "issues 배열 필요");
+    }
+  );
+
+  it(
+    "POST /rest/api/3/search/jql — FWK 골든 3키 (project=FWK 또는 JIRA_TEST_FWK_KEYS)",
+    {
+      skip:
+        skipLive ||
+        (!env.JIRA_TEST_FWK_KEYS?.trim() &&
+          client.projectKey?.toUpperCase() !== "FWK"),
+    },
+    async () => {
+      const fwkKeys = parseFwkTestKeys(env.JIRA_TEST_FWK_KEYS);
+      const pk = (client.projectKey || "FWK").trim();
+      assert.match(pk, /^[A-Za-z][A-Za-z0-9_]*$/);
+      const keysClause = fwkKeys.map((k) => `"${k}"`).join(", ");
+      const jql = `project = ${pk} AND key in (${keysClause}) ORDER BY key`;
+      const r = await client.request("POST", "/rest/api/3/search/jql", {
+        jql,
+        maxResults: 10,
+        fields: ["summary", "status", "key", "assignee"],
+      });
+      assert.equal(
+        r.status,
+        200,
+        `HTTP ${r.status}: ${typeof r.json === "object" ? JSON.stringify(r.json).slice(0, 500) : r.text?.slice(0, 500)}`
+      );
+      const issues = r.json?.issues ?? [];
+      assert.equal(
+        issues.length,
+        fwkKeys.length,
+        `기대 ${fwkKeys.length}건, 실제 ${issues.length}건 · JQL: ${jql}`
+      );
+      const found = new Set(issues.map((i) => i.key));
+      for (const key of fwkKeys) {
+        assert.ok(found.has(key), `JIRA에 ${key} 없음`);
+      }
     }
   );
 

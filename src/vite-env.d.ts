@@ -18,6 +18,8 @@ interface ImportMetaEnv {
   readonly VITE_JIRA_BOARD_ID?: string;
   /** 스토리 포인트 필드 id (미설정 시 customfield_10016) */
   readonly VITE_JIRA_STORY_POINTS_FIELD?: string;
+  /** 시작일 커스텀 필드 id (미설정 시 customfield_10015 시도) */
+  readonly VITE_JIRA_START_DATE_FIELD?: string;
   /** Supabase 프로젝트 URL */
   readonly VITE_SUPABASE_URL?: string;
   /** Supabase anon (public) key */

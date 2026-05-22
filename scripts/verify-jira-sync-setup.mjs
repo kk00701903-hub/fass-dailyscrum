@@ -91,6 +91,16 @@ if (!url || !key) {
   if (env.JIRA_TEST_TLS_INSECURE === "1") process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   const supabase = createClient(url, key);
 
+  const { error: colErr } = await supabase.from("jira_sprints").select("jira_sprint_id, start_date, end_date").limit(1);
+  if (colErr) {
+    fail(`jira_sprints 확장 컬럼 없음: ${colErr.message}`);
+    console.error(
+      "\n   → Supabase Dashboard → SQL Editor 에서 실행:\n   supabase/migrations/20260522120000_jira_sprints_schedule.sql\n"
+    );
+  } else {
+    pass("jira_sprints 컬럼: jira_sprint_id, start_date, end_date");
+  }
+
   const { data: sprints, error: se } = await supabase
     .from("jira_sprints")
     .select("sprint_name, updated_at")
