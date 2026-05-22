@@ -114,6 +114,35 @@ export function filterTasksByStatuses(tasks: JiraTask[], statuses: Iterable<Task
   return tasks.filter((t) => allowed.has(t.status));
 }
 
+function isListedSubtask(task: JiraTask): boolean {
+  if (task.isSubtask === true) return true;
+  if (task.parentId?.trim()) return true;
+  if (task.parentIssueKey?.trim()) return true;
+  return false;
+}
+
+/** 담당 이슈 패널: 목록에 보이는 서브태스크가 있으면 해당 부모(jira_issue_id)만 제외 */
+export function excludeParentsWithListedSubtasks(tasks: JiraTask[]): JiraTask[] {
+  if (tasks.length === 0) return tasks;
+
+  const keyToId = new Map(tasks.map((t) => [t.key, t.id]));
+  const parentIdSet = new Set<string>();
+
+  for (const t of tasks) {
+    if (!isListedSubtask(t)) continue;
+    const pid = t.parentId?.trim();
+    if (pid) parentIdSet.add(pid);
+    const parentKey = t.parentIssueKey?.trim();
+    if (parentKey) {
+      const resolved = keyToId.get(parentKey);
+      if (resolved) parentIdSet.add(resolved);
+    }
+  }
+
+  if (parentIdSet.size === 0) return tasks;
+  return tasks.filter((task) => !parentIdSet.has(task.id));
+}
+
 /** 데일리 스크럼 담당 이슈: 스프린트 상태와 무관하게 담당 배정 전체(완료 포함) */
 export function getMemberAssignedTasks(memberId: string): JiraTask[] {
   return getActiveJiraTasks()

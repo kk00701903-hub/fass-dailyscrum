@@ -85,8 +85,8 @@ test("sanitizeSelectedTaskKeys: TODO 제거 후 FWK-215만", () => {
 
 test("isScrumFormSavable: FWK-215 선택 시 저장 가능", () => {
   const form = {
-    yesterday: "전일",
-    today: "오늘",
+    yesterdayByTask: { "FWK-215": "전일" },
+    todayByTask: { "FWK-215": "오늘" },
     selectedTasks: ["FWK-215"],
   };
   assert.equal(isScrumFormSavable(form), true);
@@ -95,14 +95,22 @@ test("isScrumFormSavable: FWK-215 선택 시 저장 가능", () => {
 
 test("isScrumFormSavable: TODO만 선택 시 sanitize 후 저장 불가", () => {
   const sanitized = sanitizeSelectedTaskKeys(["FWK-220"], buildKimGoldenTasks());
-  const form = { yesterday: "전일", today: "오늘", selectedTasks: sanitized };
+  const form = {
+    yesterdayByTask: { "FWK-220": "전일" },
+    todayByTask: { "FWK-220": "오늘" },
+    selectedTasks: sanitized,
+  };
   assert.deepEqual(sanitized, []);
   assert.equal(isScrumFormSavable(form), false);
   assert.match(getScrumSaveValidationMessage(form), /담당 이슈/);
 });
 
 test("isScrumFormSavable: 선택 이슈 없어도 backlog 없으면 저장 가능", () => {
-  const form = { yesterday: "a", today: "b", selectedTasks: [] };
+  const form = {
+    yesterdayByTask: { _free: "a" },
+    todayByTask: { _free: "b" },
+    selectedTasks: [],
+  };
   assert.equal(isScrumFormSavable(form, { requireTaskSelection: false }), true);
 });
 

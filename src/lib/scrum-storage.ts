@@ -2,7 +2,19 @@ import type { JiraTask, ScrumEntry } from "@/lib/index";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { upsertDailyReport } from "@/lib/daily-reports-repository";
 import { reconcileScrumEntriesWithJiraTasks } from "@/lib/scrum-jira-reconcile";
+import {
+  buildTaskLogRows,
+  parseLegacyTaskTexts,
+  pruneTaskTextMap,
+  serializeTaskTexts,
+  taskLogsToMaps,
+  type ScrumTaskTextMap,
+} from "@/lib/scrum-task-fields";
 import { fetchScrumEntriesFromDb, upsertScrumEntryToDb } from "@/lib/supabase/jira-repository";
+import {
+  batchUpsertScrumTaskLogs,
+  fetchScrumTaskLogs,
+} from "@/lib/supabase/scrum-task-logs-repository";
 import {
   fetchMemberSprintsFromDb,
   upsertMemberSprintToDb,
@@ -13,6 +25,70 @@ let memberSprintsDbCache: Record<string, string[]> | null = null;
 
 const ENTRIES_KEY = "scrum-daily-entries";
 const REGISTERED_SPRINTS_KEY = "scrum-member-registered-sprints";
+const TASK_FIELDS_LOCAL_KEY = "scrum-task-fields-by-entry";
+
+export type ScrumFormTaskFields = {
+  yesterdayByTask: ScrumTaskTextMap;
+  todayByTask: ScrumTaskTextMap;
+};
+
+function taskFieldsLocalKey(date: string, memberId: string, sprintId: string): string {
+  return `${date}::${memberId}::${sprintId}`;
+}
+
+function readLocalTaskFields(
+  date: string,
+  memberId: string,
+  sprintId: string
+): ScrumFormTaskFields | null {
+  const store = readJson<Record<string, ScrumFormTaskFields>>(TASK_FIELDS_LOCAL_KEY, {});
+  return store[taskFieldsLocalKey(date, memberId, sprintId)] ?? null;
+}
+
+function writeLocalTaskFields(
+  date: string,
+  memberId: string,
+  sprintId: string,
+  fields: ScrumFormTaskFields
+): void {
+  const store = readJson<Record<string, ScrumFormTaskFields>>(TASK_FIELDS_LOCAL_KEY, {});
+  store[taskFieldsLocalKey(date, memberId, sprintId)] = fields;
+  writeJson(TASK_FIELDS_LOCAL_KEY, store);
+}
+
+/** 폼 로드: scrum_task_logs → 로컬 캐시 → 레거시 단일 필드 파싱 */
+export async function resolveScrumFormTaskFields(
+  date: string,
+  memberId: string,
+  sprintId: string,
+  selectedTasks: string[],
+  legacyYesterday: string,
+  legacyToday: string
+): Promise<ScrumFormTaskFields> {
+  const local = readLocalTaskFields(date, memberId, sprintId);
+  if (local) {
+    return {
+      yesterdayByTask: pruneTaskTextMap(local.yesterdayByTask, selectedTasks),
+      todayByTask: pruneTaskTextMap(local.todayByTask, selectedTasks),
+    };
+  }
+
+  try {
+    const logs = await fetchScrumTaskLogs(memberId, date, sprintId);
+    if (logs.length > 0) {
+      const maps = taskLogsToMaps(logs, selectedTasks);
+      writeLocalTaskFields(date, memberId, sprintId, maps);
+      return maps;
+    }
+  } catch {
+    /* table 미적용 등 */
+  }
+
+  return {
+    yesterdayByTask: parseLegacyTaskTexts(legacyYesterday, selectedTasks),
+    todayByTask: parseLegacyTaskTexts(legacyToday, selectedTasks),
+  };
+}
 
 /** 데일리 스크럼 저장·로컬 동기화 시 발행 — 스크럼 일지 등에서 구독 */
 export const SCRUM_ENTRIES_CHANGED_EVENT = "scrum-entries-changed";
@@ -137,34 +213,60 @@ export function findScrumEntry(
   );
 }
 
-export async function saveScrumEntry(
-  payload: Omit<ScrumEntry, "id"> & {
-    id?: string;
-    isCompleted?: boolean;
-  }
-): Promise<ScrumEntry> {
+export type SaveScrumEntryPayload = {
+  id?: string;
+  date: string;
+  sprintId: string;
+  memberId: string;
+  blockers: string;
+  selectedTasks: string[];
+  isCompleted?: boolean;
+  yesterdayByTask?: ScrumTaskTextMap;
+  todayByTask?: ScrumTaskTextMap;
+  jiraIssueIdByKey?: Record<string, string>;
+};
+
+export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<ScrumEntry> {
+  const keys = payload.selectedTasks;
+  const yesterdayByTask = pruneTaskTextMap(payload.yesterdayByTask ?? {}, keys);
+  const todayByTask = pruneTaskTextMap(payload.todayByTask ?? {}, keys);
+  const yesterday = serializeTaskTexts(yesterdayByTask, keys);
+  const today = serializeTaskTexts(todayByTask, keys);
+
   let entry: ScrumEntry = {
     id: payload.id ?? `local-${Date.now()}`,
     date: payload.date,
     sprintId: payload.sprintId,
     memberId: payload.memberId,
-    yesterday: payload.yesterday,
-    today: payload.today,
+    yesterday,
+    today,
     blockers: payload.blockers,
     selectedTasks: payload.selectedTasks,
   };
+
+  writeLocalTaskFields(payload.date, payload.memberId, payload.sprintId, {
+    yesterdayByTask,
+    todayByTask,
+  });
 
   if (isSupabaseConfigured()) {
     try {
       await upsertDailyReport({
         memberId: payload.memberId,
         reportDate: payload.date,
-        yesterday: payload.yesterday,
-        today: payload.today,
+        yesterday,
+        today,
         blockers: payload.blockers,
         isCompleted: payload.isCompleted ?? false,
       });
       entry = await upsertScrumEntryToDb(entry);
+      const idMap = new Map(Object.entries(payload.jiraIssueIdByKey ?? {}));
+      await batchUpsertScrumTaskLogs({
+        memberId: payload.memberId,
+        entryDate: payload.date,
+        sprintId: payload.sprintId,
+        rows: buildTaskLogRows(keys, yesterdayByTask, todayByTask, idMap),
+      });
       if (supabaseScrumCache) {
         const k = entryKey(entry);
         supabaseScrumCache = [...supabaseScrumCache.filter((e) => entryKey(e) !== k), entry];

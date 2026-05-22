@@ -11,9 +11,11 @@ import { GrafanaDashboardEmbed } from "@/components/GrafanaDashboardEmbed";
 import { StatCard, Card, SectionHeader } from "@/components/Stats";
 import { ROUTES } from "@/lib/index";
 import { getMembersForAnalytics, TEAM_MEMBER_PREFS_EVENT } from "@/lib/team-member-preferences";
-import { getActiveJiraTasks } from "@/lib/jira-data-registry";
-import { blockersFromJiraTasks, memberTaskCompletionCounts } from "@/lib/jira-live-data";
+import { memberTaskCompletionCounts } from "@/lib/jira-live-data";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { useActiveJiraTasks } from "@/hooks/use-active-jira-tasks";
+import { useAnalyticsBlockers } from "@/hooks/use-analytics-blockers";
+import { hydrateScrumHistoryFromSupabase } from "@/lib/scrum-storage";
 import { useJiraSyncStore } from "@/store/jiraSyncStore";
 import { memberAvatarStyle, ui } from "@/lib/design-system";
 import { cn } from "@/lib/utils";
@@ -30,11 +32,13 @@ const ANALYTICS_KPI_GRID = "grid grid-cols-2 gap-3 md:grid-cols-4";
 
 export default function Analytics() {
   const hydrateFromSupabase = useJiraSyncStore((s) => s.hydrateFromSupabase);
-  const tasks = getActiveJiraTasks();
-  const blockers = blockersFromJiraTasks(tasks);
+  const tasks = useActiveJiraTasks();
+  const { counts: blockerCounts } = useAnalyticsBlockers();
 
   useEffect(() => {
-    if (isSupabaseConfigured()) void hydrateFromSupabase();
+    if (!isSupabaseConfigured()) return;
+    void hydrateFromSupabase();
+    void hydrateScrumHistoryFromSupabase();
   }, [hydrateFromSupabase]);
 
   const totalSP = tasks.reduce((s, t) => s + t.storyPoints, 0);
@@ -82,9 +86,13 @@ export default function Analytics() {
           variant="dense"
           tall
           label="블로커 이슈"
-          value={blockers.length}
+          value={blockerCounts.total}
           unit="건"
-          description="BLOCKED 상태"
+          description={
+            blockerCounts.total > 0
+              ? `스크럼 ${blockerCounts.scrum} · JIRA ${blockerCounts.jira}`
+              : "스크럼 병목 · JIRA BLOCKED"
+          }
           icon={<AlertTriangle className="h-4 w-4" style={{ color: "#fb923c" }} />}
           iconBg="rgba(251,146,60,0.12)"
         />

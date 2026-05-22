@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Save, Server, Key, Bell, Users, Database, CheckCircle2, XCircle, Loader2, GitBranch, Sun, Moon, Monitor } from "lucide-react";
+import {
+  Save,
+  Server,
+  Key,
+  Bell,
+  Users,
+  Database,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  GitBranch,
+  Sun,
+  Moon,
+  Monitor,
+  Trash2,
+} from "lucide-react";
 import { Card, SectionHeader } from "@/components/Stats";
 import { JiraSyncDashboard } from "@/components/JiraSyncDashboard";
 import {
@@ -30,8 +45,26 @@ import {
   type ThemePreference,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "@/hooks/use-toast";
+import { bulkDeleteScrumUserData } from "@/lib/scrum-bulk-delete";
+import {
+  clearLocalScrumCaches,
+  hydrateMemberSprintsFromSupabase,
+  hydrateScrumHistoryFromSupabase,
+} from "@/lib/scrum-storage";
+import { useJiraSyncStore } from "@/store/jiraSyncStore";
 
 type SupabaseProbe = "idle" | "checking" | "ok" | "error";
 
@@ -58,6 +91,8 @@ export default function Settings() {
   const [grafanaEmbedUrl, setGrafanaEmbedUrl] = useState(() => getStoredGrafanaDashboardEmbedUrl());
   const [supabaseProbe, setSupabaseProbe] = useState<SupabaseProbe>("idle");
   const [supabaseProbeDetail, setSupabaseProbeDetail] = useState("");
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const supabaseConfigured = isSupabaseConfigured();
   const supabaseUrl = getSupabaseUrlFromEnv();
@@ -94,6 +129,48 @@ export default function Settings() {
     setTimeout(() => setSaved(false), 2500);
   };
 
+  const handleBulkDeleteConfirm = async () => {
+    setBulkDeleting(true);
+    try {
+      const result = await bulkDeleteScrumUserData();
+      if (!result.ok) {
+        toast({
+          title: "삭제 실패",
+          description: result.error ?? "알 수 없는 오류",
+          variant: "destructive",
+        });
+        return;
+      }
+      clearLocalScrumCaches();
+      useJiraSyncStore.getState().clearExporterImport();
+      await hydrateScrumHistoryFromSupabase();
+      await hydrateMemberSprintsFromSupabase();
+      await useJiraSyncStore.getState().hydrateFromSupabase();
+      setBulkDeleteOpen(false);
+      const detail = result.tables
+        .filter((t) => t.deleted > 0 || t.skipped)
+        .map((t) =>
+          t.skipped ? `${t.label}: 건너뜀` : `${t.label}: ${t.deleted}건`
+        )
+        .join(" · ");
+      toast({
+        title: "데이터 삭제 완료",
+        description:
+          result.totalDeleted > 0
+            ? `총 ${result.totalDeleted}건 삭제${detail ? ` (${detail})` : ""}`
+            : "삭제할 스크럼·일지 데이터가 없었습니다. 브라우저 캐시는 비웠습니다.",
+      });
+    } catch (e) {
+      toast({
+        title: "삭제 실패",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const Field = ({
     label,
     value,
@@ -123,7 +200,7 @@ export default function Settings() {
   );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-3">
+    <div className="mx-auto max-w-5xl space-y-3 pb-16 md:pb-20">
       <Card className="p-4">
         <SectionHeader dense title="화면 테마" subtitle="기본 라이트 · 다크는 아래에서 선택" />
         <div className="mt-3 flex flex-wrap gap-2">
@@ -269,6 +346,89 @@ export default function Settings() {
         </Button>
         </CardContent>
       </Card>
+
+      <Card className="border-destructive/30">
+        <CardContent className="pt-4">
+          <div className="mb-3 flex items-center gap-2">
+            <div className={cn(ui.iconBoxSm, "bg-destructive/10 text-destructive")}>
+              <Trash2 className="h-4 w-4" />
+            </div>
+            <SectionHeader
+              dense
+              title="데이터 일괄 삭제"
+              subtitle="스크럼·일지 기록만 삭제합니다. JIRA 이슈·의존성·팀 설정은 유지됩니다."
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            삭제 대상: <code className="text-[10px]">daily_reports</code>,{" "}
+            <code className="text-[10px]">scrum_entries</code>,{" "}
+            <code className="text-[10px]">scrum_member_sprints</code>, JIRA 스모크 테스트 스프린트.
+            이 브라우저의 스크럼 캐시(localStorage)도 함께 비웁니다.
+          </p>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="mt-3"
+            disabled={!supabaseConfigured || bulkDeleting}
+            onClick={() => setBulkDeleteOpen(true)}
+          >
+            {bulkDeleting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            데이터 일괄 삭제…
+          </Button>
+          {!supabaseConfigured && (
+            <p className="mt-2 text-[10px] text-destructive">
+              Supabase가 연결되어 있지 않아 삭제할 수 없습니다.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={(open) => !bulkDeleting && setBulkDeleteOpen(open)}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>데이터를 모두 삭제할까요?</AlertDialogTitle>
+            <AlertDialogDescription className="text-left leading-relaxed space-y-2">
+              <span className="block">
+                데일리 스크럼 기록, 팀 일지, 담당자 스프린트 등록, 스모크 테스트 스프린트가{" "}
+                <strong className="text-foreground">영구 삭제</strong>됩니다.
+              </span>
+              <span className="block">
+                <code className="text-[10px]">jira_tasks</code>,{" "}
+                <code className="text-[10px]">jira_dependencies</code>, 팀 구성·알림 설정은
+                삭제하지 않습니다.
+              </span>
+              <span className="block text-destructive font-medium">
+                이 작업은 되돌릴 수 없습니다.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              className={cn(buttonVariants({ variant: "destructive" }))}
+              disabled={bulkDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleBulkDeleteConfirm();
+              }}
+            >
+              {bulkDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  삭제 중…
+                </>
+              ) : (
+                "삭제"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardContent className="pt-4">

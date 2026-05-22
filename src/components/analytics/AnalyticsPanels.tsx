@@ -5,9 +5,9 @@
 import { Flame } from "lucide-react";
 import { Card, SectionHeader, StatusBadge } from "@/components/Stats";
 import { AnalyticsEmpty } from "@/components/analytics/AnalyticsEmpty";
-import { getActiveJiraTasks } from "@/lib/jira-data-registry";
-import { blockersFromJiraTasks } from "@/lib/jira-live-data";
-import { STATUS_CONFIG, type Blocker } from "@/lib/index";
+import { useActiveJiraTasks } from "@/hooks/use-active-jira-tasks";
+import { useAnalyticsBlockers } from "@/hooks/use-analytics-blockers";
+import { STATUS_CONFIG } from "@/lib/index";
 import { displayText } from "@/lib/display-text";
 import { memberAvatarStyle, ui } from "@/lib/design-system";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ const BLOCKER_TINT: Record<Blocker["severity"], string> = {
 };
 
 export function AnalyticsRecentTasks() {
-  const tasks = getActiveJiraTasks();
+  const tasks = useActiveJiraTasks();
   const list = [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   return (
@@ -78,8 +78,11 @@ export function AnalyticsRecentTasks() {
 }
 
 export function AnalyticsBlockerFeed() {
-  const tasks = getActiveJiraTasks();
-  const blockers = blockersFromJiraTasks(tasks);
+  const { items: blockers, counts } = useAnalyticsBlockers();
+  const subtitle =
+    counts.total === 0
+      ? "스크럼 0 · JIRA 0"
+      : `스크럼 ${counts.scrum} · JIRA BLOCKED ${counts.jira}`;
 
   return (
     <Card
@@ -89,11 +92,7 @@ export function AnalyticsBlockerFeed() {
       )}
     >
       <div className="shrink-0">
-        <SectionHeader
-          dense
-          title="병목 구간"
-          subtitle={`${blockers.length}건 BLOCKED`}
-        />
+        <SectionHeader dense title="병목 구간" subtitle={subtitle} />
       </div>
       <div
         className={cn(
@@ -106,7 +105,7 @@ export function AnalyticsBlockerFeed() {
       >
         {blockers.length === 0 ? (
           <AnalyticsEmpty className="min-h-[120px] border-0 bg-transparent">
-            BLOCKED 이슈가 없습니다
+            데일리 스크럼 병목·JIRA BLOCKED 이슈가 없습니다
           </AnalyticsEmpty>
         ) : (
           blockers.map((bl) => (
@@ -122,7 +121,22 @@ export function AnalyticsBlockerFeed() {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs leading-snug text-foreground">{displayText(bl.description)}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                    <span
+                      className={cn(
+                        "rounded px-1 py-0.5 font-semibold",
+                        bl.source === "scrum"
+                          ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300"
+                          : "bg-orange-500/15 text-orange-700 dark:text-orange-300"
+                      )}
+                    >
+                      {bl.source === "scrum" ? "데일리 스크럼" : "JIRA"}
+                    </span>
                     <span>{displayText(bl.reportedBy.name)}</span>
+                    {bl.source === "scrum" && bl.sprintName ? (
+                      <span>
+                        {bl.reportedAt} · {displayText(bl.sprintName)}
+                      </span>
+                    ) : null}
                     {bl.relatedTask && (
                       <span className="font-mono">{displayText(bl.relatedTask)}</span>
                     )}

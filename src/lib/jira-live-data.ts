@@ -2,6 +2,7 @@ import { getActiveJiraSprints, getActiveJiraTasks } from "@/lib/jira-data-regist
 import { JIRA_BACKLOG_SPRINT_ID } from "@/lib/jira-sprint-map";
 import type { Blocker, JiraTask, Sprint, TaskStatus } from "@/lib/index";
 import { STATUS_CONFIG, TEAM_MEMBERS, type TeamMember } from "@/lib/index";
+import { taskIsAssignedToMember } from "@/lib/scrum-backlog";
 import { getMembersForAnalytics } from "@/lib/team-member-preferences";
 
 export const EMPTY_SPRINT: Sprint = {
@@ -78,12 +79,12 @@ export function memberVelocityFromTasks(
   }).filter((row) => row.completed + row.inProgress + row.todo > 0);
 }
 
-/** 팀원별 전체 태스크 대비 완료(DONE) 건수 */
+/** 팀원별 전체 태스크 대비 완료(DONE) 건수 (담당 id·표시명 — 데일리 스크럼과 동일 규칙) */
 export function memberTaskCompletionCounts(
   tasks: JiraTask[],
   memberId: string
 ): { total: number; done: number; pct: number } {
-  const memberTasks = tasks.filter((t) => t.assignee.id === memberId);
+  const memberTasks = tasks.filter((t) => taskIsAssignedToMember(t, memberId));
   const done = memberTasks.filter((t) => t.status === "DONE").length;
   const total = memberTasks.length;
   return {

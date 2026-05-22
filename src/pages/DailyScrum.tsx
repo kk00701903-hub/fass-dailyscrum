@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
 import {
   Save,
   ClipboardCheck,
+  CheckCircle2,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
   memberHasSelectedTasksOnDate,
 } from "@/lib/scrum-carryover";
 import {
+  excludeParentsWithListedSubtasks,
   filterTasksByStatuses,
   getMemberActiveAssignedTasks,
   getMemberAssignedTasks,
@@ -28,8 +30,11 @@ import {
   type ScrumTaskPickerItem,
 } from "@/lib/scrum-backlog";
 import { ScrumTaskStatusFilter } from "@/components/ScrumTaskStatusFilter";
+import { ScrumPerTaskFields } from "@/components/scrum/ScrumPerTaskFields";
+import { parseLegacyTaskTexts, pruneTaskTextMap } from "@/lib/scrum-task-fields";
 import type { TaskStatus } from "@/lib/index";
 import {
+  canEditScrumTextFields,
   getScrumSaveValidationMessage,
   isScrumFormSavable,
 } from "@/lib/scrum-save-validation";
@@ -40,13 +45,15 @@ import {
   saveScrumEntry,
   hydrateScrumHistoryFromSupabase,
   hydrateMemberSprintsFromSupabase,
+  resolveScrumFormTaskFields,
   subscribeScrumEntries,
   SCRUM_ENTRIES_CHANGED_EVENT,
 } from "@/lib/scrum-storage";
 import { fetchDailyReport } from "@/lib/daily-reports-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { useJiraSyncStore } from "@/store/jiraSyncStore";
-import { DAILY_SCRUM_MEMBERS, ROUTES, type ScrumEntry } from "@/lib/index";
+import { DAILY_SCRUM_MEMBERS, getTeamMember, ROUTES, type ScrumEntry } from "@/lib/index";
+import { toast } from "@/hooks/use-toast";
 import { useAuthStore } from "@/store/authStore";
 import { getActiveJiraSprints } from "@/lib/jira-data-registry";
 import { resolveSprintName } from "@/lib/jira-live-data";
@@ -86,16 +93,16 @@ import {
 } from "@/lib/scrum-sprint-preferences";
 
 interface ScrumForm {
-  yesterday: string;
-  today: string;
+  yesterdayByTask: Record<string, string>;
+  todayByTask: Record<string, string>;
   blockers: string;
   selectedTasks: string[];
   isCompleted: boolean;
 }
 
 const defaultForm: ScrumForm = {
-  yesterday: "",
-  today: "",
+  yesterdayByTask: {},
+  todayByTask: {},
   blockers: SCRUM_BLOCKER_NONE_LABEL,
   selectedTasks: [],
   isCompleted: false,
@@ -106,11 +113,12 @@ function formKey(memberId: string, sprintId: string): string {
 }
 
 function entryToForm(e: ScrumEntry, isCompleted = false): ScrumForm {
+  const keys = [...e.selectedTasks];
   return {
-    yesterday: e.yesterday,
-    today: e.today,
+    yesterdayByTask: parseLegacyTaskTexts(e.yesterday, keys),
+    todayByTask: parseLegacyTaskTexts(e.today, keys),
     blockers: normalizeBlockersFromStorage(e.blockers),
-    selectedTasks: [...e.selectedTasks],
+    selectedTasks: keys,
     isCompleted,
   };
 }
@@ -144,7 +152,10 @@ function memberFormHasContent(forms: Record<string, ScrumForm>, memberId: string
   return Object.keys(forms).some((key) => {
     if (!key.startsWith(`${memberId}::`)) return false;
     const f = forms[key];
-    return !!(f?.yesterday || f?.today);
+    if (!f) return false;
+    const hasYesterday = Object.values(f.yesterdayByTask).some((v) => v.trim());
+    const hasToday = Object.values(f.todayByTask).some((v) => v.trim());
+    return hasYesterday || hasToday;
   });
 }
 
@@ -183,7 +194,12 @@ function syncMemberSelectedTasksAcrossSprints(
     if (!sid) continue;
     const k = formKey(memberId, sid);
     const cur = next[k] ?? buildFormFromHistory(dateStr, memberId, sid);
-    next[k] = { ...cur, selectedTasks: keys };
+    next[k] = {
+      ...cur,
+      selectedTasks: keys,
+      yesterdayByTask: pruneTaskTextMap(cur.yesterdayByTask, keys),
+      todayByTask: pruneTaskTextMap(cur.todayByTask, keys),
+    };
   }
   return next;
 }
@@ -218,45 +234,8 @@ function applyMemberTaskSelection(
   return syncMemberSelectedTasksAcrossSprints(prev, memberId, sprintIds, clean, dateStr);
 }
 
-function ScrumField({
-  icon,
-  title,
-  hint,
-  value,
-  onChange,
-  accent,
-  action,
-}: {
-  icon: string;
-  title: string;
-  hint?: string;
-  value: string;
-  onChange: (v: string) => void;
-  accent?: "danger";
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1">
-      <div className="flex shrink-0 items-center justify-between gap-1.5">
-        <label className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
-          <span>{icon}</span>
-          {title}
-          {hint && <span className="truncate font-normal text-muted-foreground">{hint}</span>}
-        </label>
-        {action && <div className="flex shrink-0 items-center gap-1">{action}</div>}
-      </div>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={cn(
-          ui.textarea,
-          "min-h-[2.25rem] flex-1 resize-none font-sans text-xs leading-snug",
-          accent === "danger" && "border-red-200/80 bg-red-50/30 focus:ring-red-300/30"
-        )}
-      />
-    </div>
-  );
-}
+const scrumFieldDisabledClass =
+  "cursor-not-allowed opacity-50 bg-muted/30 pointer-events-none";
 
 function blockerTextForInput(blockers: string): string {
   if (blockers === SCRUM_BLOCKER_NONE_LABEL || blockers === "없음") return "";
@@ -269,15 +248,22 @@ function ScrumBlockerField({
   value,
   onChange,
   action,
+  disabled = false,
 }: {
   mode: "none" | "custom";
   onModeChange: (mode: "none" | "custom") => void;
   value: string;
   onChange: (v: string) => void;
   action?: React.ReactNode;
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1">
+    <div
+      className={cn(
+        "flex min-h-0 flex-1 flex-col gap-1",
+        disabled && "opacity-60"
+      )}
+    >
       <div className="flex shrink-0 items-center justify-between gap-1.5">
         <label className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
           <span>🚧</span>
@@ -289,25 +275,50 @@ function ScrumBlockerField({
         value={mode}
         onValueChange={(m) => onModeChange(m as "none" | "custom")}
         className="flex shrink-0 flex-wrap items-center gap-4"
+        disabled={disabled}
       >
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-          <RadioGroupItem value="none" id="scrum-blocker-none" className="h-3.5 w-3.5" />
+        <label
+          className={cn(
+            "flex items-center gap-2 text-xs text-foreground",
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
+          )}
+        >
+          <RadioGroupItem
+            value="none"
+            id="scrum-blocker-none"
+            className="h-3.5 w-3.5"
+            disabled={disabled}
+          />
           {SCRUM_BLOCKER_NONE_LABEL}
         </label>
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-          <RadioGroupItem value="custom" id="scrum-blocker-custom" className="h-3.5 w-3.5" />
+        <label
+          className={cn(
+            "flex items-center gap-2 text-xs text-foreground",
+            disabled ? "cursor-not-allowed" : "cursor-pointer"
+          )}
+        >
+          <RadioGroupItem
+            value="custom"
+            id="scrum-blocker-custom"
+            className="h-3.5 w-3.5"
+            disabled={disabled}
+          />
           직접 입력
         </label>
       </RadioGroup>
       {mode === "custom" && (
         <textarea
           value={blockerTextForInput(value)}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="병목 내용을 입력하세요"
+          placeholder={
+            disabled ? "좌측에서 담당 이슈를 먼저 선택하세요" : "병목 내용을 입력하세요"
+          }
           className={cn(
             ui.textarea,
             "min-h-[2.25rem] flex-1 resize-none font-sans text-xs leading-snug",
-            "border-red-200/80 bg-red-50/30 focus:ring-red-300/30"
+            "border-red-200/80 bg-red-50/30 focus:ring-red-300/30",
+            disabled && scrumFieldDisabledClass
           )}
         />
       )}
@@ -340,6 +351,12 @@ export default function DailyScrum() {
     SCRUM_TASK_STATUS_FILTER_DEFAULT
   );
   const [todoHintTaskKey, setTodoHintTaskKey] = useState<string | null>(null);
+  /** 단일 이슈 자동 선택 — 사용자가 해제한 뒤 prefsTick 등으로 effect가 다시 돌 때 재선택 방지 */
+  const skipAutoSelectKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    skipAutoSelectKeyRef.current = null;
+  }, [activeMember, scrumDate, taskStatusFilter]);
 
   useEffect(() => {
     const onPrefs = () => {
@@ -454,8 +471,8 @@ export default function DailyScrum() {
         date: scrumDate,
         memberId: job.memberId,
         sprintId: job.sprintId,
-        yesterday: job.form.yesterday.trim(),
-        today: job.form.today.trim(),
+        yesterdayByTask: job.form.yesterdayByTask,
+        todayByTask: job.form.todayByTask,
         blockers: job.form.blockers.trim() || SCRUM_BLOCKER_NONE_LABEL,
         selectedTasks: job.form.selectedTasks,
         isCompleted: job.form.isCompleted,
@@ -478,8 +495,6 @@ export default function DailyScrum() {
             next[key] = {
               ...cur,
               isCompleted: row.is_completed,
-              yesterday: cur.yesterday || row.yesterday_achievement,
-              today: cur.today || row.today_plan,
               blockers: cur.blockers || row.bottleneck,
             };
           }
@@ -496,11 +511,14 @@ export default function DailyScrum() {
 
   const assignedTasks = useMemo(
     () => getMemberAssignedTasks(activeMember),
-    [activeMember, prefsTick, lastJiraDataAt]
+    [activeMember, lastJiraDataAt]
   );
 
   const visibleTasks = useMemo(
-    () => filterTasksByStatuses(assignedTasks, [taskStatusFilter]),
+    () =>
+      excludeParentsWithListedSubtasks(
+        filterTasksByStatuses(assignedTasks, [taskStatusFilter])
+      ),
     [assignedTasks, taskStatusFilter]
   );
 
@@ -559,6 +577,11 @@ export default function DailyScrum() {
     : "담당 스프린트 없음";
   const hasSelectableTasks = visibleTasks.some((t) => t.status !== "TODO");
 
+  const canEditScrumText = canEditScrumTextFields({
+    hasSelectableTasks,
+    selectedTaskCount: mergedSelectedTasks.length,
+  });
+
   const pickerTasks: ScrumTaskPickerItem[] = useMemo(() => {
     const sprintNameById = new Map(panelSprints.map((s) => [s.id, s.name]));
     return visibleTasks.map((task) => ({
@@ -566,6 +589,53 @@ export default function DailyScrum() {
       sprintName: sprintNameById.get(task.sprintId) ?? resolveSprintName(task.sprintId),
     }));
   }, [visibleTasks, panelSprints]);
+
+  const tasksByKey = useMemo(
+    () => new Map(assignedTasks.map((t) => [t.key, t])),
+    [assignedTasks]
+  );
+
+  const orderedSelectedKeys = useMemo(
+    () =>
+      [...mergedSelectedTasks].sort((a, b) => {
+        const ta = tasksByKey.get(a);
+        const tb = tasksByKey.get(b);
+        if (!ta || !tb) return a.localeCompare(b);
+        return a.localeCompare(b);
+      }),
+    [mergedSelectedTasks, tasksByKey]
+  );
+
+  useEffect(() => {
+    if (!canonicalSprintId || !activeMember) return;
+    const entry = findScrumEntry(scrumDate, activeMember, canonicalSprintId);
+    const keys =
+      (entry?.selectedTasks.length ?? 0) > 0
+        ? [...(entry?.selectedTasks ?? [])]
+        : mergedSelectedTasks;
+    void resolveScrumFormTaskFields(
+      scrumDate,
+      activeMember,
+      canonicalSprintId,
+      keys,
+      entry?.yesterday ?? "",
+      entry?.today ?? ""
+    ).then((fields) => {
+      setForms((prev) => {
+        const k = formKey(activeMember, canonicalSprintId);
+        const cur = prev[k] ?? buildFormFromHistory(scrumDate, activeMember, canonicalSprintId);
+        const selected = cur.selectedTasks.length > 0 ? cur.selectedTasks : keys;
+        return {
+          ...prev,
+          [k]: {
+            ...cur,
+            yesterdayByTask: pruneTaskTextMap(fields.yesterdayByTask, selected),
+            todayByTask: pruneTaskTextMap(fields.todayByTask, selected),
+          },
+        };
+      });
+    });
+  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision]);
 
   const taskPickerEmptyMessage =
     assignedTasks.length === 0
@@ -599,15 +669,17 @@ export default function DailyScrum() {
         assignedTasks
       );
     });
-  }, [activeMember, panelSprintIds, assignedTasks, teamSprintId, scrumDate, allowedTaskKeys, prefsTick, lastJiraDataAt]);
+  }, [activeMember, panelSprintIds, assignedTasks, teamSprintId, scrumDate, allowedTaskKeys, lastJiraDataAt]);
 
-  /** 담당 이슈가 1개뿐이면 자동 선택 (할 일 제외, 저장 전 0건 방지) */
+  /** 담당 이슈가 1개뿐이면 자동 선택 (할 일 제외) — 사용자 해제 후에는 재선택 안 함 */
   useEffect(() => {
     if (visibleTasks.length !== 1) return;
     const only = visibleTasks[0]!;
     if (only.status === "TODO") return;
     const taskKey = only.key;
-    try {
+    const autoKey = `${activeMember}::${scrumDate}::${taskKey}`;
+    if (skipAutoSelectKeyRef.current === autoKey) return;
+
     setForms((prev) => {
       const nextKeys = sanitizeSelectedTaskKeys(
         collectMergedSelectedTasks(
@@ -620,6 +692,16 @@ export default function DailyScrum() {
         assignedTasks
       );
       if (nextKeys.length > 0) return prev;
+
+      const history = getAllScrumHistory();
+      const hasEmptySavedSelection = history.some(
+        (e) =>
+          e.memberId === activeMember &&
+          e.date === scrumDate &&
+          e.selectedTasks.length === 0
+      );
+      if (hasEmptySavedSelection) return prev;
+
       const canonical = resolveScrumEntrySprintId([taskKey], assignedTasks, teamSprintId);
       return applyMemberTaskSelection(
         prev,
@@ -630,9 +712,6 @@ export default function DailyScrum() {
         assignedTasks
       );
     });
-    } catch (err) {
-      throw err;
-    }
   }, [visibleTasks, assignedTasks, activeMember, panelSprintIds, teamSprintId, scrumDate, allowedTaskKeys]);
 
   const patchForm = (patch: Partial<ScrumForm>) => {
@@ -643,8 +722,29 @@ export default function DailyScrum() {
     }));
   };
 
-  const updateForm = (field: "yesterday" | "today" | "blockers", value: string) => {
-    patchForm({ [field]: value });
+  const updateTaskYesterday = (issueKey: string, value: string) => {
+    if (!canEditScrumText) return;
+    patchForm({
+      yesterdayByTask: {
+        ...currentForm.yesterdayByTask,
+        [issueKey]: value,
+      },
+    });
+  };
+
+  const updateTaskToday = (issueKey: string, value: string) => {
+    if (!canEditScrumText) return;
+    patchForm({
+      todayByTask: {
+        ...currentForm.todayByTask,
+        [issueKey]: value,
+      },
+    });
+  };
+
+  const updateBlockers = (value: string) => {
+    if (!canEditScrumText) return;
+    patchForm({ blockers: value });
   };
 
   const handleSave = () => {
@@ -662,20 +762,32 @@ export default function DailyScrum() {
       return;
     }
     const existing = findScrumEntry(scrumDate, activeMember, saveSprintId);
+    const jiraIssueIdByKey: Record<string, string> = {};
+    for (const key of form.selectedTasks) {
+      const t = tasksByKey.get(key);
+      if (t?.id) jiraIssueIdByKey[key] = t.id;
+    }
     void saveScrumEntry({
       id: existing?.id,
       date: scrumDate,
       memberId: activeMember,
       sprintId: saveSprintId,
-      yesterday: form.yesterday.trim(),
-      today: form.today.trim(),
+      yesterdayByTask: form.yesterdayByTask,
+      todayByTask: form.todayByTask,
+      jiraIssueIdByKey,
       blockers: form.blockers.trim() || SCRUM_BLOCKER_NONE_LABEL,
       selectedTasks: form.selectedTasks,
       isCompleted: form.isCompleted,
     }).then(() => {
       setSaveError(null);
       setSaved((prev) => ({ ...prev, [activeMember]: true }));
-      setTimeout(() => setSaved((prev) => ({ ...prev, [activeMember]: false })), 2500);
+      const memberName = getTeamMember(activeMember).name;
+      toast({
+        title: "저장되었습니다",
+        description: `${memberName} · ${scrumDate} · ${sprintLabel}`,
+        duration: 5000,
+      });
+      setTimeout(() => setSaved((prev) => ({ ...prev, [activeMember]: false })), 4000);
     }).catch((e) => {
       setSaveError(e instanceof Error ? e.message : String(e));
     });
@@ -684,26 +796,66 @@ export default function DailyScrum() {
   const noPrevHint = `${addCalendarDays(scrumDate, -1)} · ${sprintLabel} 기록 없음`;
 
   const handleLoadPreviousToYesterday = () => {
+    if (!canEditScrumText) return;
     const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, canonicalSprintId, scrumDate);
-    if (!prev?.today.trim()) {
+    if (!prev) {
       setYesterdayCarryoverHint(noPrevHint);
       return;
     }
-    patchForm({ yesterday: prev.today });
-    setYesterdayCarryoverHint(`${prev.date} 오늘 계획 → 전일 성과 반영`);
+    void resolveScrumFormTaskFields(
+      prev.date,
+      activeMember,
+      canonicalSprintId,
+      prev.selectedTasks.length > 0 ? prev.selectedTasks : orderedSelectedKeys,
+      prev.yesterday,
+      prev.today
+    ).then((fields) => {
+      const keys = orderedSelectedKeys;
+      const nextYesterday: Record<string, string> = { ...currentForm.yesterdayByTask };
+      for (const key of keys) {
+        const v = (fields.todayByTask[key] ?? "").trim();
+        if (v) nextYesterday[key] = v;
+      }
+      if (!Object.values(nextYesterday).some((v) => v.trim())) {
+        setYesterdayCarryoverHint(noPrevHint);
+        return;
+      }
+      patchForm({ yesterdayByTask: pruneTaskTextMap(nextYesterday, keys) });
+      setYesterdayCarryoverHint(`${prev.date} 오늘 계획 → 전일 성과 반영`);
+    });
   };
 
   const handleLoadPreviousPlan = () => {
+    if (!canEditScrumText) return;
     const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, canonicalSprintId, scrumDate);
-    if (!prev?.today.trim()) {
+    if (!prev) {
       setPlanCarryoverHint(noPrevHint);
       return;
     }
-    patchForm({ today: prev.today });
-    setPlanCarryoverHint(`${prev.date} 오늘 계획 반영`);
+    void resolveScrumFormTaskFields(
+      prev.date,
+      activeMember,
+      canonicalSprintId,
+      prev.selectedTasks.length > 0 ? prev.selectedTasks : orderedSelectedKeys,
+      prev.yesterday,
+      prev.today
+    ).then((fields) => {
+      const keys = orderedSelectedKeys;
+      const nextToday = pruneTaskTextMap(
+        { ...currentForm.todayByTask, ...fields.todayByTask },
+        keys
+      );
+      if (!Object.values(nextToday).some((v) => v.trim())) {
+        setPlanCarryoverHint(noPrevHint);
+        return;
+      }
+      patchForm({ todayByTask: nextToday });
+      setPlanCarryoverHint(`${prev.date} 오늘 계획 반영`);
+    });
   };
 
   const handleLoadPreviousBlockers = () => {
+    if (!canEditScrumText) return;
     const prev = findPreviousScrumEntry(getAllScrumHistory(), activeMember, canonicalSprintId, scrumDate);
     if (!prev) {
       setBlockersCarryoverHint(noPrevHint);
@@ -722,36 +874,57 @@ export default function DailyScrum() {
   };
 
   const handleBlockerModeChange = (mode: "none" | "custom") => {
+    if (!canEditScrumText) return;
     setBlockerUiMode(mode);
     if (mode === "none") {
-      updateForm("blockers", SCRUM_BLOCKER_NONE_LABEL);
+      updateBlockers(SCRUM_BLOCKER_NONE_LABEL);
     } else if (
       currentForm.blockers === SCRUM_BLOCKER_NONE_LABEL ||
       currentForm.blockers === "없음"
     ) {
-      updateForm("blockers", "");
+      updateBlockers("");
     }
   };
 
-  const loadPrevBtnClass =
-    "inline-flex shrink-0 items-center gap-1 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-primary/15 active:scale-[0.98]";
+  const loadPrevBtnClass = (enabled: boolean) =>
+    cn(
+      "inline-flex shrink-0 items-center gap-1 rounded-lg border border-primary/25 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary transition-all duration-300 ease-in-out",
+      enabled &&
+        "hover:scale-[1.02] hover:bg-primary/15 active:scale-[0.98]",
+      !enabled && "cursor-not-allowed opacity-50"
+    );
 
   const loadYesterdayPrevBtn = (
-    <button type="button" onClick={handleLoadPreviousToYesterday} className={loadPrevBtnClass}>
+    <button
+      type="button"
+      disabled={!canEditScrumText}
+      onClick={handleLoadPreviousToYesterday}
+      className={loadPrevBtnClass(canEditScrumText)}
+    >
       <History className="w-3 h-3" />
       전일 불러오기
     </button>
   );
 
   const loadPlanPrevBtn = (
-    <button type="button" onClick={handleLoadPreviousPlan} className={loadPrevBtnClass}>
+    <button
+      type="button"
+      disabled={!canEditScrumText}
+      onClick={handleLoadPreviousPlan}
+      className={loadPrevBtnClass(canEditScrumText)}
+    >
       <History className="w-3 h-3" />
       전일 불러오기
     </button>
   );
 
   const loadBlockersPrevBtn = (
-    <button type="button" onClick={handleLoadPreviousBlockers} className={loadPrevBtnClass}>
+    <button
+      type="button"
+      disabled={!canEditScrumText}
+      onClick={handleLoadPreviousBlockers}
+      className={loadPrevBtnClass(canEditScrumText)}
+    >
       <History className="w-3 h-3" />
       전일 불러오기
     </button>
@@ -759,13 +932,19 @@ export default function DailyScrum() {
 
   const persistTaskSelection = (form: ScrumForm, sprintId: string) => {
     const existing = findScrumEntry(scrumDate, activeMember, sprintId);
+    const jiraIssueIdByKey: Record<string, string> = {};
+    for (const key of form.selectedTasks) {
+      const t = tasksByKey.get(key);
+      if (t?.id) jiraIssueIdByKey[key] = t.id;
+    }
     void saveScrumEntry({
       id: existing?.id,
       date: scrumDate,
       memberId: activeMember,
       sprintId,
-      yesterday: form.yesterday.trim(),
-      today: form.today.trim(),
+      yesterdayByTask: form.yesterdayByTask,
+      todayByTask: form.todayByTask,
+      jiraIssueIdByKey,
       blockers: form.blockers.trim() || SCRUM_BLOCKER_NONE_LABEL,
       selectedTasks: form.selectedTasks,
       isCompleted: form.isCompleted,
@@ -799,9 +978,44 @@ export default function DailyScrum() {
           assignedTasks
         )
       );
-      if (merged.has(taskKey)) merged.delete(taskKey);
+      const wasSelected = merged.has(taskKey);
+      if (wasSelected) merged.delete(taskKey);
       else merged.add(taskKey);
       const nextKeys = sanitizeSelectedTaskKeys([...merged], assignedTasks);
+
+      if (
+        wasSelected &&
+        nextKeys.length === 0 &&
+        visibleTasks.length === 1 &&
+        visibleTasks[0]?.key === taskKey
+      ) {
+        skipAutoSelectKeyRef.current = `${activeMember}::${scrumDate}::${taskKey}`;
+      }
+
+      // #region agent log
+      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "bf5f5d",
+        },
+        body: JSON.stringify({
+          sessionId: "bf5f5d",
+          runId: "post-fix",
+          hypothesisId: "H4",
+          location: "DailyScrum.tsx:handleToggleBacklogTask",
+          message: "toggle task selection",
+          data: {
+            memberId: activeMember,
+            taskKey,
+            wasSelected,
+            nextKeys,
+            skipAuto: skipAutoSelectKeyRef.current,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       const canonical = resolveScrumEntrySprintId(nextKeys, assignedTasks, teamSprintId);
       const next = applyMemberTaskSelection(
         prev,
@@ -825,6 +1039,9 @@ export default function DailyScrum() {
   const handleClearAllSelectedTasks = () => {
     setSaveError(null);
     setHighlightTaskSelection(false);
+    if (visibleTasks.length === 1 && visibleTasks[0]?.status !== "TODO") {
+      skipAutoSelectKeyRef.current = `${activeMember}::${scrumDate}::${visibleTasks[0]!.key}`;
+    }
     setForms((prev) => {
       const canonical = resolveScrumEntrySprintId([], assignedTasks, teamSprintId);
       const next = applyMemberTaskSelection(
@@ -952,14 +1169,28 @@ export default function DailyScrum() {
           <button
             type="button"
             onClick={handleSave}
-            className={cn(ui.btnPrimary, "h-8 min-w-[4.5rem] gap-1 px-3 text-xs")}
+            aria-live="polite"
+            className={cn(
+              ui.btnPrimary,
+              "h-9 min-w-[5.5rem] gap-1.5 px-3.5 text-sm font-semibold transition-all",
+              saved[activeMember] && "ring-2 ring-emerald-300/80 ring-offset-2 ring-offset-background"
+            )}
             style={saveButtonStyle()}
           >
-            <Save className="w-3.5 h-3.5" />
-            저장
+            {saved[activeMember] ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                저장됨
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 shrink-0" />
+                저장
+              </>
+            )}
           </button>
           {saveError ? (
-            <p className="w-full basis-full text-right text-[10px] leading-tight text-red-600 sm:w-auto sm:basis-auto">
+            <p className="w-full basis-full text-right text-xs font-medium leading-snug text-red-600 sm:w-auto sm:basis-auto">
               {saveError}
             </p>
           ) : null}
@@ -1009,19 +1240,22 @@ export default function DailyScrum() {
 
         <div className="grid min-h-0 grid-rows-3 gap-2">
           <Card className="flex min-h-0 flex-col overflow-hidden p-2.5">
-            <ScrumField
+            <ScrumPerTaskFields
               icon="📋"
               title="전일 성과"
               hint={
                 mergedSelectedTasks.length > 0
-                  ? `선택 ${mergedSelectedTasks.length}건 · 클릭으로 해제`
+                  ? `선택 ${mergedSelectedTasks.length}건 · 이슈별 입력`
                   : hasSelectableTasks
-                    ? "좌측 이슈 클릭으로 선택 (필수)"
+                    ? "좌측 이슈를 먼저 선택하세요"
                     : "좌측 이슈 클릭으로 선택"
               }
-              value={currentForm.yesterday}
-              onChange={(v) => updateForm("yesterday", v)}
+              taskKeys={orderedSelectedKeys}
+              tasksByKey={tasksByKey}
+              values={currentForm.yesterdayByTask}
+              onChange={updateTaskYesterday}
               action={loadYesterdayPrevBtn}
+              disabled={!canEditScrumText}
             />
             {yesterdayCarryoverHint && (
               <p
@@ -1035,13 +1269,22 @@ export default function DailyScrum() {
             )}
           </Card>
           <Card className="flex min-h-0 flex-col overflow-hidden p-2.5">
-            <ScrumField
+            <ScrumPerTaskFields
               icon="🎯"
               title="오늘 계획"
-              hint={sprintLabel}
-              value={currentForm.today}
-              onChange={(v) => updateForm("today", v)}
+              hint={
+                canEditScrumText
+                  ? `${sprintLabel} · 이슈별 입력`
+                  : hasSelectableTasks
+                    ? "좌측 이슈를 먼저 선택하세요"
+                    : sprintLabel
+              }
+              taskKeys={orderedSelectedKeys}
+              tasksByKey={tasksByKey}
+              values={currentForm.todayByTask}
+              onChange={updateTaskToday}
               action={loadPlanPrevBtn}
+              disabled={!canEditScrumText}
             />
             {planCarryoverHint && (
               <p
@@ -1059,8 +1302,9 @@ export default function DailyScrum() {
               mode={blockerUiMode}
               onModeChange={handleBlockerModeChange}
               value={currentForm.blockers}
-              onChange={(v) => updateForm("blockers", v)}
+              onChange={updateBlockers}
               action={loadBlockersPrevBtn}
+              disabled={!canEditScrumText}
             />
             {blockersCarryoverHint && (
               <p
@@ -1122,13 +1366,27 @@ export default function DailyScrum() {
       <AnimatePresence>
         {saved[activeMember] && (
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl border border-emerald-200/80 bg-card px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg ring-1 ring-emerald-100"
+            role="status"
+            aria-live="polite"
+            aria-label="데일리 스크럼 저장 완료"
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 420, damping: 28 }}
+            className="pointer-events-none fixed inset-x-0 bottom-8 z-[100] flex justify-center px-4"
           >
-            <ClipboardCheck className="w-4 h-4" />
-            저장 완료
+            <div className="flex max-w-md items-center gap-4 rounded-2xl border-2 border-emerald-400/50 bg-emerald-600 px-6 py-4 text-white shadow-2xl shadow-emerald-900/25">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
+                <ClipboardCheck className="h-7 w-7" strokeWidth={2.25} />
+              </div>
+              <div className="min-w-0 text-left">
+                <p className="text-lg font-bold tracking-tight">저장되었습니다</p>
+                <p className="mt-0.5 text-sm font-medium text-emerald-50/95">
+                  {getTeamMember(activeMember).name} · {scrumDate}
+                  {sprintLabel !== "담당 스프린트 없음" ? ` · ${sprintLabel}` : ""}
+                </p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
