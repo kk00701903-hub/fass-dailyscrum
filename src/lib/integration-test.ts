@@ -1,4 +1,5 @@
-import { jiraFetch, isJiraLiveFetchAvailable } from "@/lib/jira-client";
+import { jiraFetch, isJiraApiReachable, isJiraLiveFetchAvailable } from "@/lib/jira-client";
+import { canUseJiraEdgeProxy } from "@/lib/jira-env";
 import { parseExporterCsvToJiraTasks } from "@/lib/jira-exporter-csv";
 import { loadExporterSnapshot } from "@/lib/jira-exporter-storage";
 import {
@@ -110,7 +111,7 @@ async function runEnvConfig(): Promise<IntegrationTestResult> {
   const missing: string[] = [];
   if (!base || base.includes("your-org")) missing.push("VITE_JIRA_BASE_URL");
   if (!email || email.includes("your-org")) missing.push("VITE_JIRA_EMAIL");
-  if (!token) missing.push("VITE_JIRA_API_TOKEN");
+  if (!token && !canUseJiraEdgeProxy()) missing.push("VITE_JIRA_API_TOKEN (또는 Supabase Edge JIRA_* 시크릿)");
   const ms = Math.round(performance.now() - t0);
   if (missing.length) {
     return fail(meta, `미설정: ${missing.join(", ")}`, ms);
@@ -123,18 +124,25 @@ async function runRestAvailability(): Promise<IntegrationTestResult> {
   const meta = INTEGRATION_TEST_CATALOG[1]!;
   const t0 = performance.now();
   const ms = Math.round(performance.now() - t0);
+  if (canUseJiraEdgeProxy()) {
+    return pass(meta, "Supabase Edge jira-proxy 경로 사용 가능", ms);
+  }
   if (isJiraLiveFetchAvailable()) {
-    return pass(meta, "개발 모드 + VITE_JIRA_BASE_URL — Vite 프록시 경로 사용 가능", ms);
+    return pass(meta, "개발 모드 — Vite JIRA 프록시 fallback 사용 가능", ms);
   }
   if (!import.meta.env.DEV) {
-    return skip(meta, "프로덕션 빌드에서는 REST 프록시가 없습니다. Exporter CSV를 사용하세요.");
+    return skip(meta, "프로덕션 빌드: VITE_SUPABASE_* 와 Edge jira-proxy 필요. Exporter CSV 대안.");
   }
-  return fail(meta, "VITE_JIRA_BASE_URL 이 없거나 placeholder 입니다. .env.local 확인 후 dev 서버 재시작", ms);
+  return fail(
+    meta,
+    "VITE_SUPABASE_* 또는 VITE_JIRA_BASE_URL+EMAIL+TOKEN 이 없습니다. docs/JIRA_AUTH.md 참고",
+    ms
+  );
 }
 
 async function runRestMyself(): Promise<IntegrationTestResult> {
   const meta = INTEGRATION_TEST_CATALOG[2]!;
-  if (!isJiraLiveFetchAvailable()) return skip(meta, "REST 프록시 비활성 — 환경 변수·개발 서버 확인");
+  if (!isJiraApiReachable()) return skip(meta, "JIRA REST 비활성 — Supabase Edge 또는 로컬 VITE_JIRA_* 확인");
   const t0 = performance.now();
   try {
     const me = await jiraFetch<{ displayName?: string; emailAddress?: string; accountId?: string }>(
@@ -151,7 +159,7 @@ async function runRestMyself(): Promise<IntegrationTestResult> {
 
 async function runRestJql(): Promise<IntegrationTestResult> {
   const meta = INTEGRATION_TEST_CATALOG[3]!;
-  if (!isJiraLiveFetchAvailable()) return skip(meta, "REST 프록시 비활성");
+  if (!isJiraApiReachable()) return skip(meta, "JIRA REST 비활성");
   const t0 = performance.now();
   const projectKey = getJiraProjectKeyFromEnv();
   const jql = projectKey
@@ -175,7 +183,7 @@ async function runRestBoard(): Promise<IntegrationTestResult> {
   const meta = INTEGRATION_TEST_CATALOG[4]!;
   const boardId = getJiraBoardIdFromEnv();
   if (!boardId) return skip(meta, "VITE_JIRA_BOARD_ID 미설정 — JQL 검색만 사용");
-  if (!isJiraLiveFetchAvailable()) return skip(meta, "REST 프록시 비활성");
+  if (!isJiraApiReachable()) return skip(meta, "JIRA REST 비활성");
   if (!/^\d+$/.test(boardId)) {
     return fail(meta, "VITE_JIRA_BOARD_ID 는 숫자여야 합니다.", 0);
   }

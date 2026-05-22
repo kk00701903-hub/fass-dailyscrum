@@ -39,15 +39,27 @@ export function getJiraStartDateFieldIdFromEnv(): string {
   return import.meta.env.VITE_JIRA_START_DATE_FIELD?.trim() ?? "";
 }
 
+/** Supabase Edge `jira-proxy` / `sync-jira-all` 사용 가능 */
+export function canUseJiraEdgeProxy(): boolean {
+  return isSupabaseConfigured();
+}
+
+/** 로컬 Vite JIRA 프록시 fallback (Edge 미배포·디버그용) */
+export function hasLocalJiraViteProxyCredentials(): boolean {
+  return Boolean(
+    import.meta.env.DEV &&
+      getJiraBaseUrlFromEnv() &&
+      getJiraEmailFromEnv() &&
+      hasJiraApiTokenFromEnv()
+  );
+}
+
 /** 브라우저에서 JIRA → Supabase 동기화 가능 여부 */
 export function canSyncJiraFromBrowser(): boolean {
   if (!isSupabaseConfigured()) return false;
   if (!/^\d+$/.test(getJiraBoardIdFromEnv())) return false;
-
-  if (import.meta.env.DEV) {
-    return Boolean(getJiraBaseUrlFromEnv()) && Boolean(getJiraEmailFromEnv()) && hasJiraApiTokenFromEnv();
-  }
-
-  // GitHub Pages: JIRA 인증은 Supabase Edge(jira-proxy) — 보드 ID만 빌드에 필요
-  return true;
+  // Edge 우선: Supabase + 보드 ID (개발·운영 공통)
+  if (canUseJiraEdgeProxy()) return true;
+  // Edge 없을 때만 로컬 프록시로 직접 JIRA 호출
+  return hasLocalJiraViteProxyCredentials();
 }

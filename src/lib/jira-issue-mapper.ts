@@ -67,6 +67,8 @@ export interface JiraTaskDbRow {
   resolved_at: string | null;
   issue_type: string;
   parent_issue_key: string | null;
+  /** JIRA parent.id — parent_id FK 해석용 */
+  parent_jira_issue_id?: string | null;
   parent_id: string | null;
   is_subtask: boolean;
   jira_status_name: string;
@@ -223,7 +225,7 @@ export function mapIssueToDbRow(
     resolved_at: toTimestamptz(issue.fields?.resolutiondate),
     issue_type: issueType?.name ?? "",
     parent_issue_key: parent?.key ?? null,
-    /** FK: 부모가 동일 배치에 없을 수 있어 키만 저장, id는 후처리 또는 null */
+    parent_jira_issue_id: parent?.id ?? null,
     parent_id: null,
     is_subtask: isSubtask,
     jira_status_name: issue.fields?.status?.name ?? "",

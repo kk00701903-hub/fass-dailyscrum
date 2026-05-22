@@ -15,7 +15,7 @@ import { fetchSprintsFromDb, fetchTasksFromDb } from "@/lib/supabase/jira-reposi
 import { fetchJiraSprintsFromDb, invokeJiraSprintSync } from "@/lib/jira-sprints-dashboard";
 import { JIRA_BACKLOG_SPRINT_ID } from "@/lib/jira-sprint-map";
 import { jiraSprintRowToSprint } from "@/lib/sprint-status";
-import { isJiraLiveFetchAvailable } from "@/lib/jira-client";
+import { isJiraApiReachable, isJiraLiveFetchAvailable } from "@/lib/jira-client";
 import {
   hydrateScrumHistoryFromSupabase,
   reconcileScrumHistoryWithJiraTasks,
@@ -49,7 +49,7 @@ interface JiraSyncState {
   /** REST API 또는 Supabase Edge Function 동기화 */
   startSync: (source: JiraSyncSource) => boolean;
   /** DB에 쌓인 JIRA 데이터만 읽기 (동기화 없이) */
-  hydrateFromSupabase: () => Promise<boolean>;
+  hydrateFromSupabase: (keyMigrations?: Map<string, string>) => Promise<boolean>;
   /** Exporter for Jira CSV 파일 가져오기 */
   importExporterFile: (file: File) => Promise<boolean>;
   /** 저장된 Exporter 스냅샷 복원 */
@@ -120,7 +120,7 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
 
   clearJiraError: () => set({ lastJiraError: null }),
 
-  hydrateFromSupabase: async () => {
+  hydrateFromSupabase: async (keyMigrations = new Map<string, string>()) => {
     if (!isSupabaseConfigured()) return false;
     try {
       let tasks: JiraTask[] = [];
@@ -151,7 +151,7 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
       setJiraDataCache(tasks, sprints.length > 0 ? sprints : active ? [active] : []);
       await hydrateScrumHistoryFromSupabase();
       if (tasks.length > 0) {
-        await reconcileScrumHistoryWithJiraTasks(tasks);
+        await reconcileScrumHistoryWithJiraTasks(tasks, keyMigrations);
       }
       set({
         dataSource: "supabase",
@@ -175,7 +175,7 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
     if (isSupabaseConfigured()) {
       const finishWithFallback = async (): Promise<boolean> => {
         if (await get().hydrateFromSupabase()) return true;
-        if (!isJiraLiveFetchAvailable()) return false;
+        if (!isJiraApiReachable()) return false;
         try {
           const r = await pullJiraSyncData();
           if (!r.usedLive || r.error || (r.tasks.length === 0 && !r.sprint)) return false;
@@ -216,7 +216,8 @@ export const useJiraSyncStore = create<JiraSyncState>((set, get) => ({
             });
             return;
           }
-          const hydrated = await get().hydrateFromSupabase();
+          const keyMigrations = r.keyMigrations;
+          const hydrated = await get().hydrateFromSupabase(keyMigrations);
           if (!hydrated) {
             set({
               syncing: false,

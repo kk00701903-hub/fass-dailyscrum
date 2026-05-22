@@ -1,7 +1,7 @@
 import { runBrowserJiraFullSync } from "@/lib/jira-browser-sync";
 import { invokeProductionJiraSync } from "@/lib/jira-edge-sync";
-import { canSyncJiraFromBrowser } from "@/lib/jira-env";
-import { isJiraLiveFetchAvailable } from "@/lib/jira-client";
+import { isJiraEdgeAuthFailure, isEdgeUnavailable } from "@/lib/jira-edge-sync";
+import { hasLocalJiraViteProxyCredentials } from "@/lib/jira-env";
 import { sortSprintsByNumber } from "@/lib/jira-sprint-sort";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
@@ -191,19 +191,21 @@ export async function invokeJiraSprintSync(): Promise<{
   ok: boolean;
   count?: number;
   tasksCount?: number;
+  keyMigrations?: Map<string, string>;
   error?: string;
 }> {
   if (!isSupabaseConfigured()) {
     return { ok: false, error: "VITE_SUPABASE_URL · VITE_SUPABASE_ANON_KEY 를 설정하세요." };
   }
 
-  if (import.meta.env.DEV && isJiraLiveFetchAvailable()) {
-    return runBrowserJiraFullSync();
-  }
-
   const edge = await invokeProductionJiraSync();
   if (edge.ok && (edge.tasksCount ?? 0) > 0) {
-    return { ok: true, count: edge.count, tasksCount: edge.tasksCount };
+    return {
+      ok: true,
+      count: edge.count,
+      tasksCount: edge.tasksCount,
+      keyMigrations: edge.keyMigrations,
+    };
   }
 
   if (edge.ok && (edge.tasksCount ?? 0) === 0) {
@@ -214,10 +216,20 @@ export async function invokeJiraSprintSync(): Promise<{
     };
   }
 
-  const edgeMissing = /not found|404|non-2xx|Edge Function not found/i.test(edge.error ?? "");
-  if (edgeMissing && canSyncJiraFromBrowser()) {
+  const edgeMsg = edge.error ?? "";
+  const canLocalFallback =
+    hasLocalJiraViteProxyCredentials() &&
+    (isEdgeUnavailable(edgeMsg) || isJiraEdgeAuthFailure(edgeMsg));
+  if (canLocalFallback) {
     const browser = await runBrowserJiraFullSync();
-    if (browser.ok) return browser;
+    if (browser.ok) {
+      return {
+        ok: true,
+        count: browser.count,
+        tasksCount: browser.tasksCount,
+        keyMigrations: browser.keyMigrations,
+      };
+    }
     return {
       ok: false,
       error:

@@ -249,6 +249,7 @@ function mapIssue(
     resolved_at: issue.fields?.resolutiondate ?? null,
     issue_type: issue.fields?.issuetype?.name ?? "",
     parent_issue_key: issue.fields?.parent?.key ?? null,
+    parent_jira_issue_id: issue.fields?.parent?.id ?? null,
     parent_id: null,
     is_subtask: Boolean(issue.fields?.issuetype?.subtask),
     jira_status_name: issue.fields?.status?.name ?? "",
@@ -409,12 +410,11 @@ Deno.serve(async (req) => {
     const taskRows = [...taskById.values()];
     const linkRows = rollupTaskLinksToSprintDeps([...taskLinksById.values()], issueKeyToSprintId);
 
-    const { upserted: tasksCount, pruned } = await upsertJiraTasksInDb(supabase, taskRows, {
-      logPrefix: "[sync-jira-all]",
-    });
-    if (pruned > 0) {
-      console.info(`[sync-jira-all] pruned ${pruned} stale task row(s)`);
-    }
+    const { upserted: tasksCount, pruned, keyMigrations } = await upsertJiraTasksInDb(
+      supabase,
+      taskRows,
+      { logPrefix: "[sync-jira-all]" }
+    );
 
     const { error: delLinks } = await supabase.from("jira_dependencies").delete().eq("source", "jira");
     if (delLinks && !/source|schema cache|does not exist/i.test(delLinks.message)) throw delLinks;
@@ -434,6 +434,8 @@ Deno.serve(async (req) => {
       tasksCount,
       linksCount: linkRows.length,
       subtasks,
+      pruned,
+      keyMigrations: Object.fromEntries(keyMigrations),
       mode: "jira_issue_id_upsert",
     });
   } catch (e) {

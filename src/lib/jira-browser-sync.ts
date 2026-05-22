@@ -11,12 +11,14 @@ export async function runBrowserJiraFullSync(): Promise<{
   ok: boolean;
   count?: number;
   tasksCount?: number;
+  keyMigrations?: Map<string, string>;
   error?: string;
 }> {
   if (!canSyncJiraFromBrowser()) {
     return {
       ok: false,
-      error: "VITE_SUPABASE_* · VITE_JIRA_BASE_URL · VITE_JIRA_EMAIL · VITE_JIRA_API_TOKEN · VITE_JIRA_BOARD_ID 를 설정하세요.",
+      error:
+        "VITE_SUPABASE_* · VITE_JIRA_BOARD_ID 가 필요합니다. Edge 미사용 시 로컬 fallback용 VITE_JIRA_EMAIL · VITE_JIRA_API_TOKEN 도 설정하세요. docs/JIRA_AUTH.md",
     };
   }
 
@@ -38,6 +40,7 @@ export async function runBrowserJiraFullSync(): Promise<{
     ok: true,
     count: sprints.count,
     tasksCount: tasks.count,
+    keyMigrations: tasks.keyMigrations,
     linksCount: tasks.linksCount,
   };
 }

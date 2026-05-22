@@ -1,25 +1,26 @@
 import { STATUS_CONFIG, type TaskStatus } from "@/lib/index";
 import {
+  SCRUM_TASK_STATUS_FILTER_DEFAULT,
   SCRUM_TASK_STATUS_FILTER_ORDER,
 } from "@/lib/scrum-backlog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 interface ScrumTaskStatusFilterProps {
-  value: TaskStatus[];
-  onChange: (next: TaskStatus[]) => void;
+  value: TaskStatus;
+  onChange: (next: TaskStatus) => void;
   className?: string;
 }
 
 export function ScrumTaskStatusFilter({ value, onChange, className }: ScrumTaskStatusFilterProps) {
-  const handleChange = (next: string[]) => {
-    if (next.length === 0) return;
-    onChange(next as TaskStatus[]);
+  const handleChange = (next: string) => {
+    if (!next) return;
+    onChange(next as TaskStatus);
   };
 
   return (
     <ToggleGroup
-      type="multiple"
+      type="single"
       value={value}
       onValueChange={handleChange}
       variant="outline"

@@ -20,6 +20,8 @@ import {
 } from "@/lib/jira-issue-mapper";
 import { JIRA_BACKLOG_SPRINT_ID } from "@/lib/jira-sprint-map";
 import { upsertJiraTasksInDb } from "@/lib/jira-tasks-upsert";
+import { reconcileScrumHistoryWithJiraTasks } from "@/lib/scrum-storage";
+import { fetchTasksFromDb } from "@/lib/supabase/jira-repository";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -107,29 +109,43 @@ export async function fetchTasksFromJiraViaProxy(): Promise<{
 }
 
 /** jira_tasks — JIRA issue.id 기준 upsert (issue_key·제목·상태 갱신) */
-export async function replaceJiraTasksInDb(rows: JiraTaskDbRow[]): Promise<number> {
+export async function replaceJiraTasksInDb(rows: JiraTaskDbRow[]): Promise<{
+  upserted: number;
+  pruned: number;
+  keyMigrations: Map<string, string>;
+}> {
   if (!isSupabaseConfigured()) {
     throw new Error("VITE_SUPABASE_URL · VITE_SUPABASE_ANON_KEY 를 설정하세요.");
   }
 
-  const { upserted } = await upsertJiraTasksInDb(supabase, rows, {
+  return upsertJiraTasksInDb(supabase, rows, {
     logPrefix: "[syncJiraTasks/browser]",
   });
-  return upserted;
 }
 
 export async function syncJiraTasksFromBrowser(): Promise<{
   ok: boolean;
   count?: number;
   linksCount?: number;
+  keyMigrations?: Map<string, string>;
   error?: string;
 }> {
   try {
     const { rows, linkDeps } = await fetchTasksFromJiraViaProxy();
-    const count = await replaceJiraTasksInDb(rows);
-    console.info(`[syncJiraTasks/browser] ${count} issue(s) synced via upsert`);
+    const { upserted, pruned, keyMigrations } = await replaceJiraTasksInDb(rows);
+    console.info(
+      `[syncJiraTasks/browser] upserted ${upserted}, pruned ${pruned}, key migrations ${keyMigrations.size}`
+    );
     const linksCount = await replaceJiraSyncedDependencies(linkDeps);
-    return { ok: true, count, linksCount };
+    try {
+      const tasks = await fetchTasksFromDb();
+      if (tasks.length > 0) {
+        await reconcileScrumHistoryWithJiraTasks(tasks, keyMigrations);
+      }
+    } catch {
+      /* scrum reconcile optional */
+    }
+    return { ok: true, count: upserted, linksCount, keyMigrations };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

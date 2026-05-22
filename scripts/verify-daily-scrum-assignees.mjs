@@ -5,8 +5,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createClient } from "@supabase/supabase-js";
 import { JIRA_KIM_BOARD_KEYS } from "../tests/fixtures/fwk-kim-golden.mjs";
+import { createSupabaseTestClient } from "./supabase-test-client.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const issueKeyArg = process.argv[2]?.toUpperCase();
@@ -37,7 +37,7 @@ if (!url || !key) {
   process.exit(0);
 }
 
-const supabase = createClient(url, key);
+const supabase = createSupabaseTestClient(url, key, env);
 
 const MEMBERS = [
   { id: "kim", name: "김희찬" },

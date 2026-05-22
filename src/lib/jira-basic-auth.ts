@@ -45,16 +45,18 @@ export function jiraAuthFailureHint(options?: {
   devProxy?: boolean;
   edgeProxy?: boolean;
 }): string {
-  const parts = [
-    "Atlassian 계정 이메일(VITE_JIRA_EMAIL)과 API 토큰이 동일 사용자 쌍인지 확인하세요.",
-    "토큰은 https://id.atlassian.com/manage-profile/security/api-tokens 에서 새로 발급 후 .env.local 의 VITE_JIRA_API_TOKEN 에 붙여넣으세요.",
-    "브라우저·Vite 프록시는 VITE_JIRA_* 만 읽습니다. process.env.JIRA_API_TOKEN 은 Node 스크립트·Supabase Edge 시크릿용입니다.",
-  ];
-  if (options?.devProxy) {
-    parts.push("변경 후 npm run dev 를 재시작하세요.");
+  const parts: string[] = [];
+  if (options?.edgeProxy ?? !options?.devProxy) {
+    parts.push(
+      "Supabase Edge Secrets: JIRA_EMAIL · JIRA_API_TOKEN (팀 서비스 계정, 만료 최대 365일). 갱신 시 GitHub Actions secrets 도 동일 값으로 맞추세요."
+    );
+    parts.push("자세한 절차: docs/JIRA_AUTH.md");
   }
-  if (options?.edgeProxy) {
-    parts.push("운영(GitHub Pages) 동기화는 Supabase Edge 시크릿 JIRA_EMAIL · JIRA_API_TOKEN 을 설정하세요.");
+  if (options?.devProxy) {
+    parts.push(
+      "로컬 Vite 프록시 디버그 시에만 .env.local 의 VITE_JIRA_EMAIL · VITE_JIRA_API_TOKEN 을 확인하세요 (선택)."
+    );
+    parts.push("변경 후 npm run dev 를 재시작하세요.");
   }
   return parts.join(" ");
 }

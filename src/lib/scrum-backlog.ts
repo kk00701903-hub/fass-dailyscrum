@@ -106,7 +106,8 @@ export const SCRUM_TASK_STATUS_FILTER_ORDER: TaskStatus[] = [
   "DONE",
 ];
 
-export const SCRUM_TASK_STATUS_FILTER_DEFAULT: TaskStatus[] = ["IN_PROGRESS"];
+/** 담당 이슈 패널 기본 상태 필터 (단일 선택) */
+export const SCRUM_TASK_STATUS_FILTER_DEFAULT: TaskStatus = "IN_PROGRESS";
 
 export function filterTasksByStatuses(tasks: JiraTask[], statuses: Iterable<TaskStatus>): JiraTask[] {
   const allowed = new Set(statuses);

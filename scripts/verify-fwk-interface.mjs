@@ -5,13 +5,13 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createClient } from "@supabase/supabase-js";
 import {
   loadEnvLocal,
   mergeProcessEnv,
   createJiraHttpClient,
   isPlaceholderJiraBase,
 } from "./jira-test-lib.mjs";
+import { createSupabaseTestClient } from "./supabase-test-client.mjs";
 import {
   JIRA_KIM_BOARD_KEYS,
   KIM_MEMBER_ID,
@@ -62,7 +62,7 @@ if (!url || !anonKey) {
   skip("Phase A Supabase: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 없음");
 } else {
   console.log("── Phase A: Supabase jira_tasks ──\n");
-  const supabase = createClient(url, anonKey);
+  const supabase = createSupabaseTestClient(url, anonKey, env);
   const { data: tasks, error } = await supabase
     .from("jira_tasks")
     .select(

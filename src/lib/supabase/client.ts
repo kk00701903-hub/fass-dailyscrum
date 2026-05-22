@@ -3,11 +3,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 let client: SupabaseClient | null = null;
 
 export function getSupabaseUrlFromEnv(): string {
-  return import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
+  return import.meta.env?.VITE_SUPABASE_URL?.trim() ?? "";
 }
 
 export function getSupabaseAnonKeyFromEnv(): string {
-  return import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
+  return import.meta.env?.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
 }
 
 /** UI 표시용 — 앞·뒤만 노출 */

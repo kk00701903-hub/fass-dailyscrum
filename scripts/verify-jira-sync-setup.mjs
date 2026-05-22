@@ -111,6 +111,22 @@ if (!url || !key) {
     pass(`jira_sprints 최신: ${sprints[0].sprint_name} @ ${sprints[0].updated_at}`);
   } else warn("jira_sprints 비어 있음 — sync:jira 실행 필요");
 
+  const { error: issueIdColErr } = await supabase
+    .from("jira_tasks")
+    .select("jira_issue_id, issue_key")
+    .limit(1);
+  if (issueIdColErr) {
+    fail(`jira_tasks.jira_issue_id 없음: ${issueIdColErr.message}`);
+    console.error(
+      "\n   → Supabase Dashboard → SQL Editor 에서 순서대로 실행:\n" +
+        "   supabase/migrations/20260526120000_jira_tasks_jira_issue_id_upsert.sql\n" +
+        "   supabase/migrations/20260527120000_jira_tasks_master_jira_issue_id.sql\n" +
+        "   notify pgrst, 'reload schema';\n"
+    );
+  } else {
+    pass("jira_tasks 컬럼: jira_issue_id (마스터 키 upsert)");
+  }
+
   const { data: tasks, error: te } = await supabase
     .from("jira_tasks")
     .select("issue_key, updated_at, is_subtask")
@@ -122,7 +138,11 @@ if (!url || !key) {
   } else warn("jira_tasks 비어 있음 — sync:jira:tasks 실행 필요");
 }
 
-console.log("\n── 4. GitHub Actions 실행 이력 (수동 확인) ──\n");
+console.log("\n── 4. Edge Function 호출 (선택) ──\n");
+console.log("   npm run test:edge-invoke");
+console.log("   → JIRA HTTP 401 이면 Supabase Edge Secrets JIRA_EMAIL · JIRA_API_TOKEN 갱신 (docs/JIRA_AUTH.md)\n");
+
+console.log("\n── 5. GitHub Actions 실행 이력 (수동 확인) ──\n");
 console.log("   Repo → Actions → 'JIRA Sync (Sprints + Tasks)' → 최근 Run 성공 여부");
 console.log("   또는: gh run list --workflow=jira-sync.yml\n");
 

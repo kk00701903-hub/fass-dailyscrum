@@ -14,16 +14,22 @@ export function formatScrumEntryDateLabel(iso: string): string {
   return `${y}. ${m}. ${d}.`;
 }
 
-/** 멤버별 일자 그룹 — 각 일자의 저장된 「오늘 계획」(today)만 */
+/**
+ * 멤버별 일자 그룹 — 저장된 「오늘 계획」(today)만.
+ * referenceDate 기준 D-lookbackDays ~ D-1 (선택 일자 제외, 과거 7일).
+ */
 export function groupScrumTodayPlansByDate(
   history: ScrumEntry[],
   memberId: string,
-  maxDates = 8
+  referenceDate: string,
+  lookbackDays = 7
 ): ScrumTodayPlanByDate[] {
+  const minDate = addCalendarDays(referenceDate, -lookbackDays);
   const byDate = new Map<string, ScrumTodayPlanByDate["plans"]>();
 
   for (const e of history) {
     if (e.memberId !== memberId) continue;
+    if (e.date < minDate || e.date >= referenceDate) continue;
     const today = e.today.trim();
     if (!today) continue;
     const list = byDate.get(e.date) ?? [];
@@ -33,7 +39,6 @@ export function groupScrumTodayPlansByDate(
 
   return [...byDate.entries()]
     .sort(([a], [b]) => b.localeCompare(a))
-    .slice(0, maxDates)
     .map(([date, plans]) => ({
       date,
       dateLabel: formatScrumEntryDateLabel(date),

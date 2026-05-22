@@ -22,13 +22,16 @@
     "sync:jira:tasks": "tsx --tsconfig tsconfig.scripts.json src/scripts/syncJiraTasks.ts",
     "sync:jira:all": "tsx --tsconfig tsconfig.scripts.json src/scripts/syncJira.ts && tsx --tsconfig tsconfig.scripts.json src/scripts/syncJiraTasks.ts",
     "verify:jira-sync": "node scripts/verify-jira-sync-setup.mjs",
+    "test:edge-invoke": "node scripts/test-edge-invoke.mjs",
+    "secrets:push-jira": "node scripts/push-jira-edge-secrets.mjs",
+    "diagnose:jira-upsert": "node scripts/diagnose-jira-tasks-upsert.mjs",
     "test:daily-scrum-interface": "node --import tsx --test tests/daily-scrum-jira-interface.test.mjs",
-    "test:interface": "node --import tsx --test tests/daily-scrum-jira-interface.test.mjs tests/interface-pipeline.test.mjs tests/scrum-save-validation.test.mjs tests/scrum-backlog.test.mjs",
+    "test:interface": "node --import tsx --test tests/daily-scrum-jira-interface.test.mjs tests/interface-pipeline.test.mjs tests/scrum-save-validation.test.mjs tests/scrum-backlog.test.mjs tests/scrum-task-status-filter.test.mjs tests/scrum-task-status-filter-ui.test.mjs tests/jira-tasks-upsert.test.mjs tests/scrum-issue-key-migration.test.mjs tests/scrum-carryover.test.mjs tests/jira-wbs-gantt-labels.test.mjs tests/jira-wbs.test.mjs",
     "test:interface:live": "node --test tests/jira-api.integration.test.mjs",
-    "verify:interface": "node scripts/verify-fwk-interface.mjs && node scripts/verify-daily-scrum-assignees.mjs",
+    "verify:interface": "node --import tsx scripts/verify-fwk-interface.mjs && node --import tsx scripts/verify-daily-scrum-assignees.mjs",
     "test:interface:all": "npm run test:interface && npm run test:interface:live && npm run verify:interface",
-    "verify:daily-scrum": "node scripts/verify-daily-scrum-assignees.mjs",
-    "verify:fwk": "node scripts/verify-fwk-interface.mjs"
+    "verify:daily-scrum": "node --import tsx scripts/verify-daily-scrum-assignees.mjs",
+    "verify:fwk": "node --import tsx scripts/verify-fwk-interface.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

@@ -20,6 +20,7 @@ import {
 } from "@/lib/scrum-carryover";
 import {
   filterTasksByStatuses,
+  getMemberActiveAssignedTasks,
   getMemberAssignedTasks,
   resolveScrumEntrySprintId,
   sanitizeSelectedTaskKeys,
@@ -335,27 +336,13 @@ export default function DailyScrum() {
   const [blockerUiMode, setBlockerUiMode] = useState<"none" | "custom">("none");
   const [highlightTaskSelection, setHighlightTaskSelection] = useState(false);
   const [todoHintOpen, setTodoHintOpen] = useState(false);
-  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus[]>(
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus>(
     SCRUM_TASK_STATUS_FILTER_DEFAULT
   );
   const [todoHintTaskKey, setTodoHintTaskKey] = useState<string | null>(null);
 
   useEffect(() => {
     const onPrefs = () => {
-      // #region agent log
-      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
-        body: JSON.stringify({
-          sessionId: "bf5f5d",
-          hypothesisId: "F",
-          location: "DailyScrum.tsx:prefsTick",
-          message: "prefsTick incremented",
-          data: {},
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setPrefsTick((t) => t + 1);
     };
     window.addEventListener(SCRUM_SPRINT_PREFS_EVENT, onPrefs);
@@ -367,20 +354,6 @@ export default function DailyScrum() {
   }, []);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
-      body: JSON.stringify({
-        sessionId: "bf5f5d",
-        hypothesisId: "F",
-        location: "DailyScrum.tsx:buildAllForms-effect",
-        message: "rebuild all forms (date change only)",
-        data: { scrumDate },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     setForms(buildAllForms(scrumDate));
   }, [scrumDate]);
 
@@ -393,8 +366,8 @@ export default function DailyScrum() {
   );
 
   const pastTodayPlansByDate = useMemo(
-    () => groupScrumTodayPlansByDate(getAllScrumHistory(), activeMember),
-    [activeMember, scrumHistoryRevision]
+    () => groupScrumTodayPlansByDate(getAllScrumHistory(), activeMember, scrumDate),
+    [activeMember, scrumHistoryRevision, scrumDate]
   );
 
   useEffect(() => {
@@ -408,6 +381,7 @@ export default function DailyScrum() {
   /** 전일 담당 이슈 체크 → 익일(오늘·이후) 미저장 시 자동 반영·저장 (과거 일자·전체 해제 저장일 제외) */
   useEffect(() => {
     if (scrumDate < todayIso()) return;
+
 
     const history = getAllScrumHistory();
     const teamId = getTeamActiveSprintId();
@@ -526,7 +500,7 @@ export default function DailyScrum() {
   );
 
   const visibleTasks = useMemo(
-    () => filterTasksByStatuses(assignedTasks, taskStatusFilter),
+    () => filterTasksByStatuses(assignedTasks, [taskStatusFilter]),
     [assignedTasks, taskStatusFilter]
   );
 
@@ -614,20 +588,6 @@ export default function DailyScrum() {
       const same =
         nextKeys.length === cur.selectedTasks.length &&
         nextKeys.every((key, i) => cur.selectedTasks[i] === key);
-      // #region agent log
-      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
-        body: JSON.stringify({
-          sessionId: "bf5f5d",
-          hypothesisId: "I",
-          location: "DailyScrum.tsx:sync-selected-effect",
-          message: "sync selectedTasks across sprints",
-          data: { nextKeys, curKeys: cur.selectedTasks, same, canonical },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       if (same) return prev;
       const sanitized = sanitizeSelectedTaskKeys(nextKeys, assignedTasks);
       return applyMemberTaskSelection(
@@ -647,6 +607,7 @@ export default function DailyScrum() {
     const only = visibleTasks[0]!;
     if (only.status === "TODO") return;
     const taskKey = only.key;
+    try {
     setForms((prev) => {
       const nextKeys = sanitizeSelectedTaskKeys(
         collectMergedSelectedTasks(
@@ -669,6 +630,9 @@ export default function DailyScrum() {
         assignedTasks
       );
     });
+    } catch (err) {
+      throw err;
+    }
   }, [visibleTasks, assignedTasks, activeMember, panelSprintIds, teamSprintId, scrumDate, allowedTaskKeys]);
 
   const patchForm = (patch: Partial<ScrumForm>) => {
@@ -816,25 +780,6 @@ export default function DailyScrum() {
 
     const task = assignedTasks.find((t) => t.key === taskKey);
     const isSelecting = !mergedSelectedTasks.includes(taskKey);
-    // #region agent log
-    fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
-      body: JSON.stringify({
-        sessionId: "bf5f5d",
-        hypothesisId: "F",
-        location: "DailyScrum.tsx:toggle-start",
-        message: "task toggle",
-        data: {
-          taskKey,
-          isSelecting,
-          mergedBefore: mergedSelectedTasks,
-          taskStatus: task?.status,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (task?.status === "TODO" && isSelecting) {
       setTodoHintTaskKey(taskKey);
       setTodoHintOpen(true);
@@ -873,20 +818,6 @@ export default function DailyScrum() {
         const form = next[k] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
         persistTaskSelection(form, persistSprintId);
       }
-      // #region agent log
-      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "bf5f5d" },
-        body: JSON.stringify({
-          sessionId: "bf5f5d",
-          hypothesisId: "F",
-          location: "DailyScrum.tsx:toggle-end",
-          message: "task toggle applied",
-          data: { taskKey, nextKeys, canonical, persistSprintId },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return next;
     });
   };
@@ -1147,7 +1078,9 @@ export default function DailyScrum() {
         <Card className="flex min-h-0 flex-col overflow-hidden p-3">
           <div className="mb-1.5 shrink-0">
             <p className="text-sm font-semibold text-foreground">과거 기록</p>
-            <p className="text-xs text-muted-foreground">일자별 오늘 계획</p>
+            <p className="text-xs text-muted-foreground">
+              선택 일자 기준 D-7 ~ D-1 · 오늘 계획만
+            </p>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
             {pastTodayPlansByDate.length === 0 ? (

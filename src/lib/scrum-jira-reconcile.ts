@@ -11,11 +11,33 @@ function entryKey(e: Pick<ScrumEntry, "date" | "memberId" | "sprintId">): string
   return `${e.date}::${e.memberId}::${e.sprintId}`;
 }
 
-function reconcileEntryKeys(entry: ScrumEntry, allTasks: JiraTask[]): ScrumEntry {
+/** FWK-164 → FWK-220 (동일 jira_issue_id) 스크럼 선택 키 갱신 */
+export function migrateSelectedTaskKeys(
+  selectedTasks: string[],
+  keyMigrations: Map<string, string>
+): string[] {
+  if (keyMigrations.size === 0) return selectedTasks;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const key of selectedTasks) {
+    const next = keyMigrations.get(key) ?? key;
+    if (seen.has(next)) continue;
+    seen.add(next);
+    out.push(next);
+  }
+  return out;
+}
+
+function reconcileEntryKeys(
+  entry: ScrumEntry,
+  allTasks: JiraTask[],
+  keyMigrations: Map<string, string>
+): ScrumEntry {
   const backlog = allTasks.filter(
     (t) => taskIsAssignedToMember(t, entry.memberId) && t.status !== "DONE"
   );
-  const next = sanitizeSelectedTaskKeys(entry.selectedTasks, backlog);
+  const migrated = migrateSelectedTaskKeys(entry.selectedTasks, keyMigrations);
+  const next = sanitizeSelectedTaskKeys(migrated, backlog);
   if (
     next.length === entry.selectedTasks.length &&
     next.every((k, i) => k === entry.selectedTasks[i])
@@ -26,16 +48,18 @@ function reconcileEntryKeys(entry: ScrumEntry, allTasks: JiraTask[]): ScrumEntry
 }
 
 /**
- * JIRA 인터페이스(동기화) 후 scrum_entries·로컬 캐시의 FWK 키를
- * 최신 jira_tasks(issue_key) 기준으로 정리합니다.
+ * JIRA 동기화 후 scrum_entries·로컬 캐시 정리
+ * - 고스트 FWK 키 제거
+ * - 동일 jira_issue_id 의 issue_key 변경 반영
  */
 export async function reconcileScrumEntriesWithJiraTasks(
   allTasks: JiraTask[],
-  entries: ScrumEntry[]
+  entries: ScrumEntry[],
+  keyMigrations: Map<string, string> = new Map()
 ): Promise<{ entries: ScrumEntry[]; changed: number }> {
   let changed = 0;
   const next = entries.map((e) => {
-    const reconciled = reconcileEntryKeys(e, allTasks);
+    const reconciled = reconcileEntryKeys(e, allTasks, keyMigrations);
     if (reconciled !== e) changed += 1;
     return reconciled;
   });
@@ -64,8 +88,10 @@ export async function reconcileScrumEntriesWithJiraTasks(
 /** 멤버 담당 패널 기준 — 현재 JIRA 캐시에 없는 FWK 키 제거 */
 export function reconcileMemberSelectedTaskKeys(
   memberId: string,
-  selectedTasks: string[]
+  selectedTasks: string[],
+  keyMigrations: Map<string, string> = new Map()
 ): string[] {
   const backlog = getMemberActiveAssignedTasks(memberId);
-  return sanitizeSelectedTaskKeys(selectedTasks, backlog);
+  const migrated = migrateSelectedTaskKeys(selectedTasks, keyMigrations);
+  return sanitizeSelectedTaskKeys(migrated, backlog);
 }

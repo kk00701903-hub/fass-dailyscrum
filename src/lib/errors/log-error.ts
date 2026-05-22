@@ -1,4 +1,5 @@
-const isProd = import.meta.env.PROD;
+/** Vite 빌드·Node 테스트(tsx) 모두에서 안전하게 동작 */
+const isProd = import.meta.env?.PROD === true;
 
 export type ErrorLogContext = {
   source?: string;

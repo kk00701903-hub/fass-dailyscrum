@@ -84,6 +84,7 @@ function mapIssueFields(
     resolved_at: toTimestamptz(issue.fields?.resolutiondate),
     issue_type: issueType?.name ?? "",
     parent_issue_key: parent?.key ?? null,
+    parent_jira_issue_id: parent?.id ?? null,
     parent_id: null,
     is_subtask: Boolean(issueType?.subtask),
     jira_status_name: issue.fields?.status?.name ?? "",
@@ -342,12 +343,13 @@ Deno.serve(async (req) => {
       sprintsCount = sprintRows.length;
     }
 
+    let keyMigrations: Record<string, string> = {};
     if (taskRows.length > 0) {
-      const { upserted, pruned } = await upsertJiraTasksInDb(supabase, taskRows, {
+      const result = await upsertJiraTasksInDb(supabase, taskRows, {
         logPrefix: "[jira-sync]",
       });
-      tasksCount = upserted;
-      if (pruned > 0) console.info(`[jira-sync] pruned ${pruned} stale task row(s)`);
+      tasksCount = result.upserted;
+      keyMigrations = Object.fromEntries(result.keyMigrations);
     }
 
     await supabase
@@ -365,6 +367,7 @@ Deno.serve(async (req) => {
       sprintsCount,
       tasksCount,
       syncedAt: now,
+      keyMigrations,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

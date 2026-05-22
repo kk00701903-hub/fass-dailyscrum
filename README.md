@@ -10,16 +10,124 @@
 | **호스팅** | GitHub Pages (`gh-pages` 브랜치) |
 | **백엔드 & DB** | Supabase (Postgres, RPC, Realtime Presence, Edge Functions) |
 | **주요 연동** | JIRA Cloud REST API, Grafana Cloud 대시보드 iframe 임베드 |
+| **최근 배포 커밋** | `1차 수정` (`master` → GitHub Pages 자동 배포) |
+
+---
+
+## 변경 이력 — 1차 수정
+
+> 커밋 메시지 **「1차 수정」** 에 포함된 주요 기능·UI·데이터·운영 변경 요약입니다.  
+> 프로덕션: https://kk00701903-hub.github.io/fass-dailyscrum/
+
+### 인증·접근
+
+| 항목 | 내용 |
+|------|------|
+| 커스텀 로그인 | Supabase Auth 대신 `app_users` + RPC (`login_app_user`, `register_app_user`) |
+| 화면 | 로그인·회원가입·아이디 찾기·비밀번호 찾기 (`/login`, `/signup`, …) |
+| 보호 라우트 | `ProtectedRoute` — 미로그인 시 로그인으로 이동 |
+| 세션 | `authStore` + localStorage (이 기기 기준) |
+
+### 데일리 스크럼
+
+| 항목 | 내용 |
+|------|------|
+| 담당자 | **서선범(`seo`) 제외** — `DAILY_SCRUM_MEMBERS` 기준 |
+| 백로그 | 담당자별 **등록 스프린트** 트리(펼치면 태스크 선택). 등록 없으면 **전체 스프린트**에서 선택 |
+| 담당 이슈 필터 | 상태 토글: 진행 중 / 할 일 / 검토 중 / 블로커 / 완료 — **기본값: 진행 중만** |
+| 이슈 선택 | `ScrumTaskPicker` — 할 일(TODO) 선택 시 JIRA 진행 중 변경 안내 |
+| 저장 | 진행 중 담당 이슈가 있으면 **1건 이상 선택 필수** + 전일·오늘 입력 검증 |
+| 스프린트 | 메인 스프린트 UI 제거 → 멤버별 **필터·포커스 스프린트** (`scrum-sprint-preferences`) |
+| 데이터 | 목업 제거 — **JIRA 동기화 + Supabase + localStorage** 만 사용 |
+
+### 팀 일지·설정
+
+| 항목 | 내용 |
+|------|------|
+| 팀 전체 일지 | `TeamDailyLogGrid` — CSS Grid로 헤더·본문 **컬럼 수직 정렬** (가상 스크롤 유지) |
+| 담당자 설정 | `TeamCompositionSettings` — 실시간 로그인 RPC·스피너 제거, 비밀번호 초기화는 `member_id` 기준 |
+| 팀 구성 표시 | `team_member_display_settings` — 스크럼 일지·애널리틱스 포함 여부 |
+
+### JIRA 연동·동기화
+
+| 항목 | 내용 |
+|------|------|
+| 데이터 소스 | 샘플/목업(`mockTasks` 등) **전부 제거** — JIRA·Supabase 캐시만 표시 |
+| 스프린트 동기화 | **전체 삭제 후 재삽입** (이름 변경 시 구 데이터 잔류 방지) |
+| 이슈 upsert | `jira_issue_id` 기준 upsert |
+| 인증 | `jira-basic-auth.ts` — UTF-8 Base64·따옴표 trim 통합 |
+| 환경 변수 | 브라우저: `VITE_JIRA_*` / Edge·CLI: `JIRA_API_TOKEN` 등 분리 |
+| 로컬 진단 | `npm run test:jira`, `scripts/jira-auth-diagnose.mjs` |
+| 동기화 UI | JIRA 동기화 페이지 — 스프린트 DB 대시보드 중심 (이슈 테이블·연동 테스트 패널 제거) |
+
+### JIRA WBS (`/jira/wbs`)
+
+| 항목 | 내용 |
+|------|------|
+| UI | `gantt-task-react` 기반 **좌측 메타 테이블 + 우측 Gantt** (`JiraWbsGanttView`) |
+| 타임라인 | **2027년 12월 말**까지 스크롤 (`wbsGanttTimelineEndDate`) |
+| 헤더 | 월·주차 커스텀 오버레이, 프로젝트 마일스톤 띠(프로토타입 스타트, Live, 종료) |
+| 스크롤 | 좌·우 **세로 동기화**, 하단·타임라인 **가로 동기화** 훅 |
+| 레이아웃 | 좌·우 패널 **세로 분할선**, 스프린트/태스크 열 **좌측 정렬 + depth 들여쓰기** |
+| 간트 라벨 | **접힌 스프린트**: 막대 안 `[S14]` 코드만 / **펼침·태스크**: 우측 간트 텍스트 **비표시** (좌측 테이블만) |
+| 필터 | 스프린트 상태·담당자 멀티 필터, 진행 중 스프린트 일괄 펼치기/접기 |
+
+### JIRA 의존성·애널리틱스
+
+| 항목 | 내용 |
+|------|------|
+| 의존성 맵 | `/jira/dependencies` — `jira_dependencies` 기반 시각화 |
+| 애널리틱스 | JIRA 실데이터 집계만 사용 (`jira-live-data.ts`), 샘플 차트·`analytics-fallback` 제거 |
+| Grafana | 애널리틱스 iframe 임베드 유지, **Grafana 연동 메뉴 페이지**는 제거 |
+
+### 실시간·알림
+
+| 항목 | 내용 |
+|------|------|
+| Presence | Supabase Realtime `online-users` — 팀원 온라인 표시 |
+| 웹 푸시 | `sw-push.js`, 구독·알림 설정, 스크럼 미입력 리마인더 Edge Function |
+
+### DB·마이그레이션 (신규·주요)
+
+| 파일 | 내용 |
+|------|------|
+| `20260522120000_jira_sprints_schedule.sql` | 스프린트 일정 컬럼 |
+| `20260523120000_jira_dependencies.sql` | 이슈 의존성 |
+| `20260526120000_scrum_member_sprints.sql` | 담당자별 등록 스프린트 |
+| `20260527120000_app_users_auth.sql` | 앱 사용자·로그인 RPC |
+| `20260529120000_web_push_notifications.sql` | 웹 푸시·알림 |
+| `20260531130000_team_member_display_settings.sql` | 팀원 표시 설정 |
+
+### 운영·스크립트
+
+| 명령 | 설명 |
+|------|------|
+| `npm run clear:test-data` | Supabase 스크럼·일지 테스트 데이터 삭제 (JIRA 캐시 유지) |
+| `npm run test:interface` | **오프라인 통합 37건** — 데일리 스크럼·WBS·저장·상태 필터 |
+| `npm run test:interface:live` | JIRA REST 실연동 (유효 `.env.local` 필요) |
+| `npm run verify:interface` | Supabase ↔ 앱 ↔ JIRA 3-way 검증 |
+| `npm run test:interface:all` | 위 명령 일괄 실행 |
+| `npm run verify:fwk` | FWK 담당 이슈·인터페이스 검증 |
+
+상세: [`docs/INTERFACE_TEST.md`](docs/INTERFACE_TEST.md)
+
+### 제거·비권장
+
+- 대시보드 페이지(`Dashboard.tsx`)·목업 데이터 파일
+- Slack 임계값 알림 연동
+- Grafana 전용 가이드 **페이지** (임베드는 애널리틱스에 유지)
+- JIRA 동기화 화면의 이슈 테이블·Exporter·연동 테스트 패널
 
 ---
 
 ## 목차
 
-1. [빠른 시작 (Getting Started)](#1--빠른-시작-getting-started)
-2. [시스템 아키텍처 및 데이터 흐름](#2-️-시스템-아키텍처-및-데이터-흐름-architecture--data-flow)
-3. [데이터베이스 및 백엔드 핵심 오브젝트](#3-️-데이터베이스-및-백엔드-핵심-오브젝트-supabase-setup)
-4. [서비스 워커 및 배포 주의사항](#4--서비스-워커-및-배포-주의사항-service-worker--deployment)
-5. [트러블슈팅 및 유지보수 가이드](#5-️-트러블슈팅-및-유지보수-가이드-faq--troubleshooting)
+1. [변경 이력 — 1차 수정](#변경-이력--1차-수정)
+2. [빠른 시작 (Getting Started)](#1--빠른-시작-getting-started)
+3. [시스템 아키텍처 및 데이터 흐름](#2-️-시스템-아키텍처-및-데이터-흐름-architecture--data-flow)
+4. [데이터베이스 및 백엔드 핵심 오브젝트](#3-️-데이터베이스-및-백엔드-핵심-오브젝트-supabase-setup)
+5. [서비스 워커 및 배포 주의사항](#4--서비스-워커-및-배포-주의사항-service-worker--deployment)
+6. [트러블슈팅 및 유지보수 가이드](#5-️-트러블슈팅-및-유지보수-가이드-faq--troubleshooting)
 
 **부록:** [프로젝트 디렉터리 구조](#부록-프로젝트-디렉터리-구조) · [관련 문서](#관련-문서)
 
@@ -76,6 +184,13 @@ http://localhost:5173/fass-dailyscrum/
 | `npm run test:jira` | JIRA API 연결 테스트 |
 | `npm run test:supabase` | Supabase 연결 테스트 |
 | `npm run verify:jira-sync` | JIRA 동기화 설정 검증 |
+| `npm run clear:test-data` | Supabase 스크럼·일지 테스트 데이터 삭제 |
+| `npm run test:interface` | 오프라인 통합 테스트 (37건, env 불필요) |
+| `npm run test:interface:live` | JIRA REST 통합 (`.env.local` + 토큰) |
+| `npm run verify:interface` | FWK 3-way + 담당자 DB 리포트 |
+| `npm run test:interface:all` | 인터페이스 + live + verify 일괄 |
+| `npm run verify:fwk` | FWK 담당 이슈·인터페이스 검증 |
+| `npm run verify:daily-scrum` | 데일리 스크럼 담당자·이슈 매칭 검증 |
 
 TypeScript 검사 (권장):
 
@@ -97,22 +212,31 @@ VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 # 형식 주의: /rest/v1 붙이지 않음, xxxx placeholder 금지
 ```
 
-#### JIRA (로컬 개발·CLI 동기화)
+#### JIRA (서버 전용 인증 — 재발급 연 1회)
 
-로컬 `npm run dev` 시 Vite가 `/fass-dailyscrum/api/jira/*` 로 **개발 프록시**를 띄웁니다.  
-**GitHub Pages 빌드에는 JIRA 토큰을 넣지 않습니다** (`.github/workflows/deploy-pages.yml` 참고).
+**권장:** 팀 **서비스 계정** API 토큰(만료 365일)을 **Supabase Edge Secrets**에만 저장합니다. 개발자마다 Atlassian 토큰을 발급할 필요가 없습니다.  
+상세: [`docs/JIRA_AUTH.md`](docs/JIRA_AUTH.md)
+
+| 환경 | 필수 `.env.local` | JIRA 인증 위치 |
+|------|-------------------|----------------|
+| 로컬 `npm run dev` | `VITE_SUPABASE_*`, `VITE_JIRA_BOARD_ID` | Edge `jira-proxy` |
+| GitHub Pages | `VITE_SUPABASE_*`, `VITE_JIRA_BOARD_ID` (빌드 secret) | Edge만 (토큰 FE 미포함) |
+| 일일 배치 | — | GitHub Actions `JIRA_*` = Edge와 동일 값 |
 
 ```env
-VITE_JIRA_BASE_URL=https://<your-org>.atlassian.net
-VITE_JIRA_EMAIL=you@company.com
-VITE_JIRA_API_TOKEN=<Atlassian API Token>
-VITE_JIRA_PROJECT_KEY=PROJ
+# 필수 (Edge 동기화·앱)
+VITE_SUPABASE_URL=https://<PROJECT_REF>.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
 VITE_JIRA_BOARD_ID=1
 
-# 선택: 스토리 포인트·시작일 커스텀 필드
-# VITE_JIRA_STORY_POINTS_FIELD=customfield_10016
-# VITE_JIRA_START_DATE_FIELD=customfield_10015
+# 선택: 로컬 Vite 프록시 디버그 (Edge 미배포·REST 직접 호출 시만)
+# VITE_JIRA_BASE_URL=https://<your-org>.atlassian.net
+# VITE_JIRA_EMAIL=scrum-sync@company.com
+# VITE_JIRA_API_TOKEN=<Atlassian API Token>
+# VITE_JIRA_PROJECT_KEY=PROJ
 ```
+
+**토큰 갱신(연 1회):** Supabase Secrets `JIRA_API_TOKEN` → GitHub Actions secrets 동일 값 → `npm run test:jira` / 앱 **JIRA 동기화**
 
 #### Grafana (애널리틱스 iframe)
 
@@ -157,7 +281,7 @@ JIRA_TEST_TLS_INSECURE=1
 1. `npm run dev` → `http://localhost:<port>/fass-dailyscrum/` 접속  
 2. **로그인** (`/login`) — `app_users` RPC 기반 커스텀 인증 (Supabase Auth 미사용)  
 3. 기본 진입: **데일리 스크럼** (`/scrum`)  
-4. JIRA 데이터가 비어 있으면 **설정** 또는 헤더 **JIRA 동기화** 실행 (Supabase Edge 또는 로컬 프록시)
+4. JIRA 데이터가 비어 있으면 **설정** 또는 헤더 **JIRA 동기화** 실행 (Supabase Edge `jira-proxy` — 로컬 토큰 불필요)
 
 ---
 
@@ -204,10 +328,13 @@ flowchart LR
 
 | 레이어 | 경로 | 역할 |
 |--------|------|------|
-| 페이지 | `src/pages/` | `DailyScrum`, `Analytics`, `Settings`, `JiraWbs` … |
-| 레이아웃 | `src/components/layout/AppShell.tsx` | 사이드바·헤더·Outlet |
+| 페이지 | `src/pages/` | `DailyScrum`, `DailyScrumHistory`, `Analytics`, `Settings`, `JiraWbs`, `JiraDependencies`, `Login` … |
+| 레이아웃 | `src/components/layout/AppShell.tsx` | 사이드바·헤더·Outlet·팀 Presence |
+| WBS | `src/components/JiraWbsGanttView.tsx`, `src/lib/jira-wbs*.ts` | Gantt WBS·타임라인·필터 |
+| 스크럼 UI | `src/components/ScrumTaskPicker.tsx`, `ScrumTaskStatusFilter.tsx` | 담당 이슈 선택·상태 필터 |
+| 팀 일지 | `src/components/scrum/TeamDailyLogGrid.tsx` | 팀 전체 일지 그리드 |
 | 상태 | `src/store/authStore.ts`, `jiraSyncStore.ts` | 로그인 세션, JIRA 캐시 |
-| 데이터 | `src/lib/jira-data-registry.ts` | 메모리 내 스프린트·태스크 캐시 |
+| 데이터 | `src/lib/jira-data-registry.ts` | 메모리 내 스프린트·태스크 캐시 (목업 fallback 없음) |
 | Supabase | `src/lib/supabase/`, `src/lib/scrum-storage.ts` | DB·RPC·스크럼 CRUD |
 | 라우트 | `src/App.tsx`, `src/lib/index.ts` (`ROUTES`) | HashRouter + `basename` |
 
@@ -488,13 +615,13 @@ npm run deploy   # build + gh-pages -d dist
 
 | 확인 항목 | 조치 |
 |-----------|------|
-| API Token | [Atlassian API tokens](https://id.atlassian.com/manage-profile/security/api-tokens)에서 재발급 |
-| 이메일 | `JIRA_EMAIL` = 토큰 소유 Atlassian 계정 이메일 |
+| 정책 | [`docs/JIRA_AUTH.md`](docs/JIRA_AUTH.md) — **서비스 계정 1개**, Edge·Actions 시크릿 단일화 |
+| API Token | [Atlassian API tokens](https://id.atlassian.com/manage-profile/security/api-tokens)에서 **365일** 만료로 재발급 |
+| Edge | Supabase Secrets `JIRA_EMAIL` · `JIRA_API_TOKEN` 갱신 후 `jira-proxy` 재배포 |
+| GitHub Actions | Repository secrets `JIRA_*` 를 Edge와 **같은 날·같은 토큰**으로 갱신 |
+| 로컬 (선택) | Vite 프록시 디버그 시에만 `VITE_JIRA_*` — 대부분 **불필요** |
 | Base URL | `https://<org>.atlassian.net` (끝 슬래시·`/rest/api` 붙이지 않음) |
-| 로컬 | `.env.local` 수정 후 **dev 서버 재시작** |
-| Edge | Supabase Secrets의 `JIRA_*` 동일 값으로 갱신 후 함수 재배포 |
-| GitHub Pages | 브라우저에서 401은 **정상**일 수 있음 — 토큰은 FE에 없고 Edge/배치만 동기화 |
-| TLS/사내 프록시 | 개발만 `JIRA_PROXY_TLS_INSECURE=1` (프로덕션 비권장) |
+| TLS/사내 프록시 | 로컬 Vite 프록시만 `JIRA_PROXY_TLS_INSECURE=1` (프로덕션 비권장) |
 
 **진단 명령**
 
@@ -532,12 +659,33 @@ npm run verify:jira-sync
 | Edge 401 | `X-Cron-Secret` ≠ `CRON_SECRET` |
 | targets 0 | 오늘 이미 스크럼 작성, 알림 OFF, 구독 없음, `member_id` 불일치 |
 
-### 5.6 데일리 스크럼 백로그가 비어 있을 때
+### 5.6 데일리 스크럼 담당 이슈가 비어 있을 때
 
 1. JIRA 동기화 성공 여부 (헤더 마지막 동기화 시각)  
-2. 이슈 **담당자**가 앱 `member_id`와 매칭되는지 (`assignee_id`)  
-3. **진행 중 이슈만** 표시 (DONE 제외) — `src/lib/scrum-backlog.ts`  
-4. Supabase `jira_tasks`에 데이터 존재 여부 (Table Editor)
+2. 이슈 **담당자**가 앱 `member_id`·표시명과 매칭되는지  
+3. **상태 필터** — 기본값은 **진행 중만**. 할 일·검토 중 등 토글로 추가 표시 (`ScrumTaskStatusFilter`)  
+4. **할 일(TODO)** 은 선택 불가 — JIRA에서 진행 중으로 바꾼 뒤 동기화  
+5. Supabase `jira_tasks`·`scrum_member_sprints`(등록 스프린트) 확인  
+
+**테스트 데이터 초기화**
+
+```bash
+npm run clear:test-data
+```
+
+브라우저 localStorage도 비울 때 (개발자 도구 콘솔):
+
+```javascript
+["scrum-daily-entries","scrum-member-registered-sprints","scrum_jira_exporter_snapshot"].forEach(k=>localStorage.removeItem(k)); location.reload()
+```
+
+### 5.7 JIRA WBS 간트 표시
+
+| 증상 | 조치 |
+|------|------|
+| 펼친 뒤 우측에 긴 이슈/스프린트 텍스트 | 1차 수정 반영 — 간트 막대 라벨 비표시, 좌측 테이블만 참고 |
+| 가로·세로 스크롤 안 됨 | `use-wbs-gantt-horizontal-scroll.ts`, `use-wbs-gantt-vertical-scroll.ts`, `gantt-wbs.css` 확인 |
+| 타임라인 짧음 | `wbsGanttTimelineEndDate()` — 2027-12 말까지 패드 행 포함 |
 
 ---
 
@@ -547,15 +695,26 @@ npm run verify:jira-sync
 scrum/
 ├── .github/workflows/       # Pages·Edge·JIRA 배치 CI
 ├── docs/
+│   ├── INTERFACE_TEST.md
 │   ├── REALTIME_PRESENCE.md
 │   └── WEB_PUSH.md
+├── scripts/
+│   ├── clear-test-data.mjs
+│   ├── jira-auth-diagnose.mjs
+│   └── verify-*.mjs
 ├── public/
 │   └── sw-push.js           # 웹 푸시 SW
 ├── src/
 │   ├── App.tsx              # 라우트 정의
 │   ├── pages/               # 화면별 페이지
 │   ├── components/
-│   │   └── layout/AppShell.tsx
+│   │   ├── layout/AppShell.tsx
+│   │   ├── JiraWbsGanttView.tsx
+│   │   ├── scrum/TeamDailyLogGrid.tsx
+│   │   └── settings/
+│   ├── styles/
+│   │   ├── gantt-wbs.css
+│   │   └── team-daily-log-grid.css
 │   ├── hooks/               # use-team-presence, jira schedule …
 │   ├── store/               # authStore, jiraSyncStore
 │   └── lib/                 # JIRA·스크럼·Supabase·Grafana 헬퍼
@@ -574,9 +733,13 @@ scrum/
 
 | 문서 | 내용 |
 |------|------|
+| [`docs/JIRA_AUTH.md`](docs/JIRA_AUTH.md) | JIRA 서버 전용 인증·토큰 연 1회 갱신 |
+| [`docs/JIRA_OAUTH_FUTURE.md`](docs/JIRA_OAUTH_FUTURE.md) | OAuth 3LO 중기 설계 (미구현) |
+| [`docs/INTERFACE_TEST.md`](docs/INTERFACE_TEST.md) | 데일리 스크럼·JIRA 인터페이스 검증 |
 | [`docs/REALTIME_PRESENCE.md`](docs/REALTIME_PRESENCE.md) | 팀원 접속 Presence |
 | [`docs/WEB_PUSH.md`](docs/WEB_PUSH.md) | 웹 푸시·VAPID·cron·Edge |
 | [`.env.example`](.env.example) | 환경 변수 템플릿 |
+| **본 README § [변경 이력 — 1차 수정](#변경-이력--1차-수정)** | 최근 기능·UI 변경 요약 |
 
 ---
 
@@ -593,4 +756,4 @@ scrum/
 
 ---
 
-*문서 버전: 프로젝트 인수인계용 (ScrumRadar / fass-dailyscrum). 스택·경로 변경 시 이 README를 함께 업데이트해 주세요.*
+*문서 버전: 프로젝트 인수인계용 (ScrumRadar / fass-dailyscrum). 최종 대규모 반영: **1차 수정** (2026-05). 스택·경로·기능 변경 시 이 README의 [변경 이력](#변경-이력--1차-수정)을 함께 업데이트해 주세요.*

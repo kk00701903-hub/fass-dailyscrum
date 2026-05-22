@@ -1,13 +1,22 @@
 import { ApiError } from "@/lib/errors/api-error";
 import { jiraAuthFailureHint } from "@/lib/jira-basic-auth";
-import { getJiraBaseUrlFromEnv } from "@/lib/jira-env";
+import {
+  canUseJiraEdgeProxy,
+  getJiraBaseUrlFromEnv,
+  hasLocalJiraViteProxyCredentials,
+} from "@/lib/jira-env";
 import { buildJiraClientHeaders } from "@/lib/jira-proxy-shared";
 import { supabase } from "@/lib/supabaseClient";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
-/** 개발: Vite JIRA 프록시 사용 가능 */
+/** 개발: Vite JIRA 프록시 fallback (VITE_JIRA_* 로컬 토큰 필요) */
 export function isJiraLiveFetchAvailable(): boolean {
-  return Boolean(import.meta.env.DEV && getJiraBaseUrlFromEnv());
+  return hasLocalJiraViteProxyCredentials();
+}
+
+/** Edge jira-proxy 또는 로컬 Vite 프록시로 JIRA REST 호출 가능 */
+export function isJiraApiReachable(): boolean {
+  return canUseJiraEdgeProxy() || isJiraLiveFetchAvailable();
 }
 
 /** 예: `/fass-dailyscrum/api/jira` — trailing slash 없음 */
@@ -39,7 +48,13 @@ async function jiraFetchViaEdgeProxy<T>(apiPath: string, init: RequestInit = {})
   }
 
   const payload = data as { ok?: boolean; error?: string; data?: T } | null;
-  if (payload?.error) throw new Error(payload.error);
+  if (payload?.error) {
+    const hint =
+      /401|unauthorized/i.test(payload.error) && isSupabaseConfigured()
+        ? ` · ${jiraAuthFailureHint({ edgeProxy: true })}`
+        : "";
+    throw new Error(`${payload.error}${hint}`);
+  }
   if (payload?.data === undefined) {
     throw new Error("jira-proxy 응답이 비어 있습니다.");
   }
@@ -48,20 +63,29 @@ async function jiraFetchViaEdgeProxy<T>(apiPath: string, init: RequestInit = {})
 
 /**
  * JIRA REST
- * - 개발: Vite 프록시
- * - 운영(GitHub Pages): Supabase Edge jira-proxy (CORS·토큰 서버 보관)
+ * - Supabase Edge jira-proxy 우선 (개발·운영)
+ * - 개발 fallback: Vite 프록시 (VITE_JIRA_* 로컬 디버그용)
  */
 export async function jiraFetch<T>(apiPath: string, init: RequestInit = {}): Promise<T> {
   const path = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
   const method = (init.method ?? "GET").toUpperCase();
 
-  if (!import.meta.env.DEV && isSupabaseConfigured()) {
-    return jiraFetchViaEdgeProxy<T>(path, init);
+  if (canUseJiraEdgeProxy()) {
+    try {
+      return await jiraFetchViaEdgeProxy<T>(path, init);
+    } catch (edgeErr) {
+      if (!isJiraLiveFetchAvailable()) {
+        throw edgeErr;
+      }
+      // 개발: Edge 실패 시 로컬 Vite 프록시로 재시도
+    }
   }
 
   const prefix = getJiraProxyPrefix();
   if (!prefix) {
-    throw new Error("JIRA live fetch는 개발 모드(Vite 프록시) 또는 Supabase jira-proxy 가 필요합니다.");
+    throw new Error(
+      "JIRA REST 호출 불가: VITE_SUPABASE_* 와 Edge jira-proxy 배포, 또는 개발 시 VITE_JIRA_EMAIL · VITE_JIRA_API_TOKEN 을 설정하세요. docs/JIRA_AUTH.md 참고."
+    );
   }
 
   const url = `${prefix}${path}`;
@@ -109,8 +133,8 @@ export async function jiraFetch<T>(apiPath: string, init: RequestInit = {}): Pro
     if (res.status === 401) {
       parts.push(
         jiraAuthFailureHint({
-          devProxy: import.meta.env.DEV,
-          edgeProxy: !import.meta.env.DEV && isSupabaseConfigured(),
+          devProxy: true,
+          edgeProxy: canUseJiraEdgeProxy(),
         })
       );
     }

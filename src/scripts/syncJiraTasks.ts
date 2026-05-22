@@ -134,9 +134,15 @@ export async function replaceJiraTasksInSupabase(
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { upserted } = await upsertJiraTasksInDb(supabase, rows, {
+  const { upserted, pruned, keyMigrations } = await upsertJiraTasksInDb(supabase, rows, {
     logPrefix: "[syncJiraTasks]",
   });
+  if (pruned > 0) console.log(`[syncJiraTasks] Pruned ${pruned} ghost row(s)`);
+  if (keyMigrations.size > 0) {
+    console.log(
+      `[syncJiraTasks] Issue key migrations: ${[...keyMigrations.entries()].map(([a, b]) => `${a}→${b}`).join(", ")}`
+    );
+  }
   return upserted;
 }
 

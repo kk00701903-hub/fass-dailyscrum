@@ -96,10 +96,13 @@ export function getAllScrumHistory(): ScrumEntry[] {
 /**
  * JIRA 동기화 직후 — 저장된 FWK 키를 최신 issue_key 목록에 맞춤 (로컬 + Supabase 캐시).
  */
-export async function reconcileScrumHistoryWithJiraTasks(tasks: JiraTask[]): Promise<number> {
+export async function reconcileScrumHistoryWithJiraTasks(
+  tasks: JiraTask[],
+  keyMigrations: Map<string, string> = new Map()
+): Promise<number> {
   const stored = getStoredScrumEntries();
   const { entries: reconciledStored, changed: storedChanged } =
-    await reconcileScrumEntriesWithJiraTasks(tasks, stored);
+    await reconcileScrumEntriesWithJiraTasks(tasks, stored, keyMigrations);
 
   if (storedChanged > 0) {
     writeJson(ENTRIES_KEY, reconciledStored);
@@ -107,7 +110,11 @@ export async function reconcileScrumHistoryWithJiraTasks(tasks: JiraTask[]): Pro
 
   let dbChanged = 0;
   if (supabaseScrumCache) {
-    const reconciled = await reconcileScrumEntriesWithJiraTasks(tasks, supabaseScrumCache);
+    const reconciled = await reconcileScrumEntriesWithJiraTasks(
+      tasks,
+      supabaseScrumCache,
+      keyMigrations
+    );
     supabaseScrumCache = reconciled.entries;
     dbChanged = reconciled.changed;
   }

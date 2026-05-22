@@ -1,6 +1,6 @@
 import type { JiraTask, Priority, Sprint, TaskStatus, TeamMember } from "@/lib/index";
 import { TEAM_MEMBERS } from "@/lib/index";
-import { jiraFetch, isJiraLiveFetchAvailable } from "@/lib/jira-client";
+import { jiraFetch, isJiraApiReachable } from "@/lib/jira-client";
 import {
   getJiraBoardIdFromEnv,
   getJiraProjectKeyFromEnv,
@@ -118,7 +118,7 @@ export async function pullJiraSyncData(): Promise<{
   sprint: Sprint | null;
   error: string | null;
 }> {
-  if (!isJiraLiveFetchAvailable()) {
+  if (!isJiraApiReachable()) {
     return { usedLive: false, tasks: [], sprint: null, error: null };
   }
 
