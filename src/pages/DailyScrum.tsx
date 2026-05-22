@@ -16,6 +16,8 @@ import {
   findPreviousMemberSelectedTasks,
   findPreviousScrumEntry,
   groupScrumTodayPlansByDate,
+  intersectCarryoverTaskKeys,
+  previousEntryTaskKeys,
   memberHasAnyScrumEntryOnDate,
   memberHasSelectedTasksOnDate,
 } from "@/lib/scrum-carryover";
@@ -794,6 +796,8 @@ export default function DailyScrum() {
   };
 
   const noPrevHint = `${addCalendarDays(scrumDate, -1)} · ${sprintLabel} 기록 없음`;
+  const noOverlapHint = (prevDate: string) =>
+    `${prevDate} · 전일과 동일한 담당 이슈 없음`;
 
   const handleLoadPreviousToYesterday = () => {
     if (!canEditScrumText) return;
@@ -802,26 +806,38 @@ export default function DailyScrum() {
       setYesterdayCarryoverHint(noPrevHint);
       return;
     }
+    const prevTaskKeys = previousEntryTaskKeys(prev);
+    const carryoverKeys = intersectCarryoverTaskKeys(orderedSelectedKeys, prevTaskKeys);
+    if (carryoverKeys.length === 0) {
+      setYesterdayCarryoverHint(noOverlapHint(prev.date));
+      return;
+    }
     void resolveScrumFormTaskFields(
       prev.date,
       activeMember,
       canonicalSprintId,
-      prev.selectedTasks.length > 0 ? prev.selectedTasks : orderedSelectedKeys,
+      prevTaskKeys,
       prev.yesterday,
       prev.today
     ).then((fields) => {
       const keys = orderedSelectedKeys;
       const nextYesterday: Record<string, string> = { ...currentForm.yesterdayByTask };
-      for (const key of keys) {
+      let filled = 0;
+      for (const key of carryoverKeys) {
         const v = (fields.todayByTask[key] ?? "").trim();
-        if (v) nextYesterday[key] = v;
+        if (v) {
+          nextYesterday[key] = v;
+          filled += 1;
+        }
       }
-      if (!Object.values(nextYesterday).some((v) => v.trim())) {
-        setYesterdayCarryoverHint(noPrevHint);
+      if (filled === 0) {
+        setYesterdayCarryoverHint(noOverlapHint(prev.date));
         return;
       }
       patchForm({ yesterdayByTask: pruneTaskTextMap(nextYesterday, keys) });
-      setYesterdayCarryoverHint(`${prev.date} 오늘 계획 → 전일 성과 반영`);
+      setYesterdayCarryoverHint(
+        `${prev.date} 오늘 계획 → 전일 성과 (${filled}건, 동일 담당 이슈)`
+      );
     });
   };
 
@@ -832,25 +848,37 @@ export default function DailyScrum() {
       setPlanCarryoverHint(noPrevHint);
       return;
     }
+    const prevTaskKeys = previousEntryTaskKeys(prev);
+    const carryoverKeys = intersectCarryoverTaskKeys(orderedSelectedKeys, prevTaskKeys);
+    if (carryoverKeys.length === 0) {
+      setPlanCarryoverHint(noOverlapHint(prev.date));
+      return;
+    }
     void resolveScrumFormTaskFields(
       prev.date,
       activeMember,
       canonicalSprintId,
-      prev.selectedTasks.length > 0 ? prev.selectedTasks : orderedSelectedKeys,
+      prevTaskKeys,
       prev.yesterday,
       prev.today
     ).then((fields) => {
       const keys = orderedSelectedKeys;
-      const nextToday = pruneTaskTextMap(
-        { ...currentForm.todayByTask, ...fields.todayByTask },
-        keys
-      );
-      if (!Object.values(nextToday).some((v) => v.trim())) {
-        setPlanCarryoverHint(noPrevHint);
+      const patch: Record<string, string> = {};
+      let filled = 0;
+      for (const key of carryoverKeys) {
+        const v = (fields.todayByTask[key] ?? "").trim();
+        if (v) {
+          patch[key] = v;
+          filled += 1;
+        }
+      }
+      const nextToday = pruneTaskTextMap({ ...currentForm.todayByTask, ...patch }, keys);
+      if (filled === 0) {
+        setPlanCarryoverHint(noOverlapHint(prev.date));
         return;
       }
       patchForm({ todayByTask: nextToday });
-      setPlanCarryoverHint(`${prev.date} 오늘 계획 반영`);
+      setPlanCarryoverHint(`${prev.date} 오늘 계획 반영 (${filled}건, 동일 담당 이슈)`);
     });
   };
 

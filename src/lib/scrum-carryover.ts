@@ -132,6 +132,37 @@ export function findPreviousScrumEntry(
   return prior[0] ?? null;
 }
 
+/** 레거시 [FWK-123] 블록에서 이슈 키 추출 */
+export function extractIssueKeysFromLegacyText(...texts: string[]): string[] {
+  const keys = new Set<string>();
+  const re = /\[([A-Z][A-Z0-9]+-\d+)\]/g;
+  for (const text of texts) {
+    for (const m of text.matchAll(re)) {
+      if (m[1]) keys.add(m[1]);
+    }
+  }
+  return [...keys];
+}
+
+/** 전일 기록에서 담당 이슈 키 (selectedTasks 우선, 없으면 레거시 본문) */
+export function previousEntryTaskKeys(entry: Pick<ScrumEntry, "selectedTasks" | "today" | "yesterday">): string[] {
+  const fromSelection = entry.selectedTasks.map((k) => k.trim()).filter(Boolean);
+  if (fromSelection.length > 0) return fromSelection;
+  return extractIssueKeysFromLegacyText(entry.today, entry.yesterday);
+}
+
+/**
+ * 전일 불러오기: 현재 선택 ∩ 동일 멤버 전일(또는 직전) 담당 이슈만.
+ */
+export function intersectCarryoverTaskKeys(
+  currentKeys: string[],
+  previousKeys: string[]
+): string[] {
+  const prev = new Set(previousKeys.map((k) => k.trim()).filter(Boolean));
+  if (prev.size === 0) return [];
+  return currentKeys.filter((k) => prev.has(k.trim()));
+}
+
 /** 전일 「오늘 계획」→ 오늘 「오늘 계획」 (선택: 전일 성과도 전일 계획으로 채움) */
 export function buildCarryoverFromPrevious(
   prev: ScrumEntry,
