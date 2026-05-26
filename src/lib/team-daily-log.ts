@@ -3,6 +3,7 @@ import { resolveSprintName } from "@/lib/jira-live-data";
 import { extractSprintCodeTag } from "@/lib/jira-sprint-sort";
 import type { DailyReportRow } from "@/lib/daily-reports-repository";
 import { getStoredScrumEntries } from "@/lib/scrum-storage";
+import { parseLegacyTaskTexts, type ScrumTaskTextMap } from "@/lib/scrum-task-fields";
 import type { JiraTask, ScrumEntry, TeamMember } from "@/lib/index";
 
 export type TeamDailyReportRow = {
@@ -118,8 +119,25 @@ export function buildTeamDailyLogRows(
 
     const tasks = formatSelectedTasks(taskKeys, jiraTasks);
 
-    const yesterdayFromScrum = primaryEntry?.yesterday.trim() || null;
-    const todayFromScrum = primaryEntry?.today.trim() || null;
+    let yesterdayByTask: ScrumTaskTextMap = {};
+    let todayByTask: ScrumTaskTextMap = {};
+    
+    for (const entry of entries) {
+      if (entry.yesterday.trim()) {
+        const parsed = parseLegacyTaskTexts(entry.yesterday, entry.selectedTasks);
+        yesterdayByTask = { ...yesterdayByTask, ...parsed };
+      }
+      if (entry.today.trim()) {
+        const parsed = parseLegacyTaskTexts(entry.today, entry.selectedTasks);
+        todayByTask = { ...todayByTask, ...parsed };
+      }
+    }
+    
+    const yesterdayTexts = Object.values(yesterdayByTask).filter(v => v.trim());
+    const todayTexts = Object.values(todayByTask).filter(v => v.trim());
+    const yesterdayFromScrum = yesterdayTexts.length > 0 ? yesterdayTexts.join("\n\n") : null;
+    const todayFromScrum = todayTexts.length > 0 ? todayTexts.join("\n\n") : null;
+    
     const blockersFromScrum =
       primaryEntry?.blockers.trim() &&
       primaryEntry.blockers.trim() !== "없음" &&
