@@ -21,8 +21,13 @@ function defaultPrefs(): TeamMemberPrefs {
   const scrumHistory: Record<string, boolean> = {};
   const analytics: Record<string, boolean> = {};
   for (const m of TEAM_MEMBERS) {
-    scrumHistory[m.id] = true;
-    analytics[m.id] = true;
+    if (m.id === "seo") {
+      scrumHistory[m.id] = false;
+      analytics[m.id] = false;
+    } else {
+      scrumHistory[m.id] = true;
+      analytics[m.id] = true;
+    }
   }
   return { scrumHistory, analytics };
 }
@@ -111,8 +116,8 @@ async function persistMemberToSupabase(memberId: string, prefs: TeamMemberPrefs)
   try {
     await upsertTeamMemberDisplayToDb(
       memberId,
-      prefs.scrumHistory[memberId] !== false,
-      prefs.analytics[memberId] !== false
+      prefs.scrumHistory[memberId] === true,
+      prefs.analytics[memberId] === true
     );
   } catch {
     /* localStorage·메모리는 유지 */
@@ -137,7 +142,7 @@ function invalidateMemberListCaches(): void {
 }
 
 function memberListKey(prefs: TeamMemberPrefs, field: "scrumHistory" | "analytics"): string {
-  return TEAM_MEMBERS.map((m) => (prefs[field][m.id] !== false ? "1" : "0")).join("");
+  return TEAM_MEMBERS.map((m) => (prefs[field][m.id] === true ? "1" : "0")).join("");
 }
 
 export function getTeamMemberPrefs(): TeamMemberPrefs {
@@ -150,11 +155,15 @@ export function getTeamMemberPrefs(): TeamMemberPrefs {
 }
 
 export function isMemberInScrumHistory(memberId: string): boolean {
-  return readPrefs().scrumHistory[memberId] ?? true;
+  const value = readPrefs().scrumHistory[memberId];
+  if (memberId === "seo") return value === true;
+  return value !== false;
 }
 
 export function isMemberInAnalytics(memberId: string): boolean {
-  return readPrefs().analytics[memberId] ?? true;
+  const value = readPrefs().analytics[memberId];
+  if (memberId === "seo") return value === true;
+  return value !== false;
 }
 
 export function setMemberScrumHistoryIncluded(memberId: string, included: boolean): void {
@@ -176,7 +185,7 @@ export function getMembersForScrumHistory(): TeamMember[] {
   const key = memberListKey(prefs, "scrumHistory");
   if (scrumMembersCache && scrumMembersCacheKey === key) return scrumMembersCache;
   scrumMembersCacheKey = key;
-  scrumMembersCache = TEAM_MEMBERS.filter((m) => prefs.scrumHistory[m.id] !== false);
+  scrumMembersCache = TEAM_MEMBERS.filter((m) => prefs.scrumHistory[m.id] === true);
   return scrumMembersCache;
 }
 
@@ -185,6 +194,6 @@ export function getMembersForAnalytics(): TeamMember[] {
   const key = memberListKey(prefs, "analytics");
   if (analyticsMembersCache && analyticsMembersCacheKey === key) return analyticsMembersCache;
   analyticsMembersCacheKey = key;
-  analyticsMembersCache = TEAM_MEMBERS.filter((m) => prefs.analytics[m.id] !== false);
+  analyticsMembersCache = TEAM_MEMBERS.filter((m) => prefs.analytics[m.id] === true);
   return analyticsMembersCache;
 }
