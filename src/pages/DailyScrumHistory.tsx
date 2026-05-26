@@ -126,7 +126,7 @@ function MemberFilterChip({
           <UsersRound className="h-3 w-3 text-muted-foreground" />
         </span>
       )}
-      <span className="max-w-[5rem] truncate">{label}</span>
+      <span className="whitespace-nowrap">{label}</span>
     </button>
   );
 }
@@ -349,7 +349,7 @@ export default function DailyScrumHistory() {
           </div>
 
           <div className="flex min-w-0 max-w-full items-center lg:max-w-[min(100%,32rem)] lg:justify-end">
-            <div className="flex max-w-full items-center gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto pb-0.5 pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <MemberFilterChip
                 active={memberFilter === ALL_MEMBERS}
                 onClick={() => setMemberFilter(ALL_MEMBERS)}
