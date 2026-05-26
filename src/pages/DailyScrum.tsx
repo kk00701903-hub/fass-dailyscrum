@@ -628,9 +628,7 @@ export default function DailyScrum() {
             ? entry!.selectedTasks
             : dbKeys.length > 0
               ? dbKeys
-              : cur.selectedTasks.length > 0
-                ? cur.selectedTasks
-                : mergedSelectedTasks;
+              : cur.selectedTasks;
         return {
           ...prev,
           [k]: {
@@ -642,7 +640,7 @@ export default function DailyScrum() {
         };
       });
     });
-  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision, mergedSelectedTasks]);
+  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision]);
 
   const taskPickerEmptyMessage =
     assignedTasks.length === 0
