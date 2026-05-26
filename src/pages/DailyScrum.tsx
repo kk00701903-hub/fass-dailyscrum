@@ -662,12 +662,15 @@ export default function DailyScrum() {
           assignedTasks
         );
         
+        const prunedYesterday = pruneTaskTextMap(fields.yesterdayByTask, selectedKeys);
+        const prunedToday = pruneTaskTextMap(fields.todayByTask, selectedKeys);
+        
         return {
           ...nextForms,
           [k]: {
             ...nextForms[k]!,
-            yesterdayByTask: fields.yesterdayByTask,
-            todayByTask: fields.todayByTask,
+            yesterdayByTask: prunedYesterday,
+            todayByTask: prunedToday,
           },
         };
       });

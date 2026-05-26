@@ -66,7 +66,12 @@ export async function resolveScrumFormTaskFields(
   legacyToday: string
 ): Promise<ScrumFormTaskFields> {
   const local = readLocalTaskFields(date, memberId, sprintId);
-  if (local) {
+  const localHasData = local && (
+    Object.keys(local.yesterdayByTask).length > 0 ||
+    Object.keys(local.todayByTask).length > 0
+  );
+  
+  if (localHasData) {
     if (selectedTasks.length === 0) {
       return { yesterdayByTask: local.yesterdayByTask, todayByTask: local.todayByTask };
     }
