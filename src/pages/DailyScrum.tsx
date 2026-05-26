@@ -622,7 +622,12 @@ export default function DailyScrum() {
       setForms((prev) => {
         const k = formKey(activeMember, canonicalSprintId);
         const cur = prev[k] ?? buildFormFromHistory(scrumDate, activeMember, canonicalSprintId);
-        const dbKeys = Object.keys(fields.yesterdayByTask);
+        const dbKeys = Array.from(
+          new Set([
+            ...Object.keys(fields.yesterdayByTask),
+            ...Object.keys(fields.todayByTask),
+          ])
+        );
         const selectedKeys =
           (entry?.selectedTasks.length ?? 0) > 0
             ? entry!.selectedTasks
