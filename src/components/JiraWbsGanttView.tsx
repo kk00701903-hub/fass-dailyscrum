@@ -240,7 +240,11 @@ function WbsGanttTaskListTable({
                 <span
                   className={cn(
                     "min-w-0 flex-1 truncate text-left text-[11px] font-semibold",
-                    isSprint ? "text-slate-900 dark:text-slate-100" : "text-slate-800 dark:text-slate-200"
+                    isSprint
+                      ? meta?.statusKind === "active"
+                        ? "text-blue-700 dark:text-blue-400"
+                        : "text-slate-900 dark:text-slate-100"
+                      : "text-slate-800 dark:text-slate-200"
                   )}
                   title={meta?.treeLabel ?? task.name}
                 >
