@@ -28,7 +28,7 @@ import {
   subscribeScrumEntries,
 } from "@/lib/scrum-storage";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { TEAM_MEMBERS, ROUTES } from "@/lib/index";
+import { ROUTES } from "@/lib/index";
 import {
   getMembersForScrumHistory,
   TEAM_MEMBER_PREFS_EVENT,
@@ -50,10 +50,6 @@ function defaultDday(): string {
   const dates = getAllScrumHistory().map((e) => e.date);
   if (dates.length === 0) return todayIso();
   return [...dates].sort((a, b) => b.localeCompare(a))[0]!;
-}
-
-function memberName(id: string) {
-  return TEAM_MEMBERS.find((m) => m.id === id)?.name ?? id;
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -268,6 +264,16 @@ export default function DailyScrumHistory() {
     return `선택 멤버 일지 (${displayMembers.length}명)`;
   }, [selectedMemberIds, displayMembers]);
 
+  const memberFilterLabel = useMemo(() => {
+    if (selectedMemberIds.has(ALL_MEMBERS)) {
+      return `전체 ${memberCount}명`;
+    }
+    if (displayMembers.length === 1) {
+      return displayMembers[0]!.name;
+    }
+    return `선택 ${displayMembers.length}명`;
+  }, [selectedMemberIds, displayMembers, memberCount]);
+
   const handleDownloadExcel = () => {
     downloadDailyScrumExcel({
       date: dateFilter,
@@ -299,7 +305,7 @@ export default function DailyScrumHistory() {
           </MetaMiniBadge>
           {isDday && <MetaMiniBadge accent="primary">D-day 기준</MetaMiniBadge>}
           <MetaMiniBadge accent="neutral">
-            {memberFilter === ALL_MEMBERS ? `전체 ${memberCount}명` : memberName(memberFilter)}
+            {memberFilterLabel}
           </MetaMiniBadge>
           <MetaMiniBadge accent={filledCount > 0 ? "success" : "neutral"}>
             입력 {filledCount}건

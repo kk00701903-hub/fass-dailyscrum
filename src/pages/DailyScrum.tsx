@@ -1058,30 +1058,6 @@ export default function DailyScrum() {
         skipAutoSelectKeyRef.current = `${activeMember}::${scrumDate}::${taskKey}`;
       }
 
-      // #region agent log
-      fetch("http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "bf5f5d",
-        },
-        body: JSON.stringify({
-          sessionId: "bf5f5d",
-          runId: "post-fix",
-          hypothesisId: "H4",
-          location: "DailyScrum.tsx:handleToggleBacklogTask",
-          message: "toggle task selection",
-          data: {
-            memberId: activeMember,
-            taskKey,
-            wasSelected,
-            nextKeys,
-            skipAuto: skipAutoSelectKeyRef.current,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       const canonical = resolveScrumEntrySprintId(nextKeys, assignedTasks, teamSprintId);
       const next = applyMemberTaskSelection(
         prev,
