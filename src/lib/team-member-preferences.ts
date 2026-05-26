@@ -152,12 +152,17 @@ function memberListKey(prefs: TeamMemberPrefs, field: "scrumHistory" | "analytic
 }
 
 export function getTeamMemberPrefs(): TeamMemberPrefs {
-  const next = readPrefs();
-  const key = JSON.stringify(next);
-  if (prefsCache && prefsCacheKey === key) return prefsCache;
-  prefsCacheKey = key;
-  prefsCache = next;
-  return prefsCache;
+  try {
+    const next = readPrefs();
+    const key = JSON.stringify(next);
+    if (prefsCache && prefsCacheKey === key) return prefsCache;
+    prefsCacheKey = key;
+    prefsCache = next;
+    return prefsCache;
+  } catch (error) {
+    console.error("getTeamMemberPrefs error:", error);
+    return defaultPrefs();
+  }
 }
 
 export function isMemberInScrumHistory(memberId: string): boolean {
@@ -187,27 +192,43 @@ export function setMemberAnalyticsIncluded(memberId: string, included: boolean):
 }
 
 export function getMembersForScrumHistory(): TeamMember[] {
-  const prefs = getTeamMemberPrefs();
-  const key = memberListKey(prefs, "scrumHistory");
-  if (scrumMembersCache && scrumMembersCacheKey === key) return scrumMembersCache;
-  scrumMembersCacheKey = key;
-  scrumMembersCache = TEAM_MEMBERS.filter((m) => {
-    const value = prefs.scrumHistory[m.id];
-    if (m.id === "seo") return value === true;
-    return value !== false;
-  });
-  return scrumMembersCache;
+  try {
+    const prefs = getTeamMemberPrefs();
+    const key = memberListKey(prefs, "scrumHistory");
+    if (scrumMembersCache && scrumMembersCacheKey === key) return scrumMembersCache;
+    scrumMembersCacheKey = key;
+    scrumMembersCache = TEAM_MEMBERS.filter((m) => {
+      const value = prefs.scrumHistory[m.id];
+      if (m.id === "seo") return value === true;
+      return value !== false;
+    });
+    if (scrumMembersCache.length === 0) {
+      scrumMembersCache = TEAM_MEMBERS.filter((m) => m.id !== "seo");
+    }
+    return scrumMembersCache;
+  } catch (error) {
+    console.error("getMembersForScrumHistory error:", error);
+    return TEAM_MEMBERS.filter((m) => m.id !== "seo");
+  }
 }
 
 export function getMembersForAnalytics(): TeamMember[] {
-  const prefs = getTeamMemberPrefs();
-  const key = memberListKey(prefs, "analytics");
-  if (analyticsMembersCache && analyticsMembersCacheKey === key) return analyticsMembersCache;
-  analyticsMembersCacheKey = key;
-  analyticsMembersCache = TEAM_MEMBERS.filter((m) => {
-    const value = prefs.analytics[m.id];
-    if (m.id === "seo") return value === true;
-    return value !== false;
-  });
-  return analyticsMembersCache;
+  try {
+    const prefs = getTeamMemberPrefs();
+    const key = memberListKey(prefs, "analytics");
+    if (analyticsMembersCache && analyticsMembersCacheKey === key) return analyticsMembersCache;
+    analyticsMembersCacheKey = key;
+    analyticsMembersCache = TEAM_MEMBERS.filter((m) => {
+      const value = prefs.analytics[m.id];
+      if (m.id === "seo") return value === true;
+      return value !== false;
+    });
+    if (analyticsMembersCache.length === 0) {
+      analyticsMembersCache = TEAM_MEMBERS.filter((m) => m.id !== "seo");
+    }
+    return analyticsMembersCache;
+  } catch (error) {
+    console.error("getMembersForAnalytics error:", error);
+    return TEAM_MEMBERS.filter((m) => m.id !== "seo");
+  }
 }
