@@ -629,18 +629,45 @@ export default function DailyScrum() {
             : dbKeys.length > 0
               ? dbKeys
               : cur.selectedTasks;
+        
+        if (selectedKeys.length === 0) {
+          return {
+            ...prev,
+            [k]: {
+              ...cur,
+              yesterdayByTask: fields.yesterdayByTask,
+              todayByTask: fields.todayByTask,
+            },
+          };
+        }
+        
+        const sprintIds = memberSprintIdsForTaskSync(
+          prev,
+          activeMember,
+          panelSprintIds,
+          teamSprintId,
+          canonicalSprintId
+        );
+        const nextForms = applyMemberTaskSelection(
+          prev,
+          activeMember,
+          sprintIds,
+          selectedKeys,
+          scrumDate,
+          assignedTasks
+        );
+        
         return {
-          ...prev,
+          ...nextForms,
           [k]: {
-            ...cur,
-            selectedTasks: selectedKeys,
+            ...nextForms[k]!,
             yesterdayByTask: fields.yesterdayByTask,
             todayByTask: fields.todayByTask,
           },
         };
       });
     });
-  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision]);
+  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision, panelSprintIds, teamSprintId, assignedTasks]);
 
   const taskPickerEmptyMessage =
     assignedTasks.length === 0
