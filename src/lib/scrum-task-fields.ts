@@ -94,6 +94,9 @@ export function taskLogsToMaps(
     yesterdayByTask[row.issueKey] = row.yesterday;
     todayByTask[row.issueKey] = row.today;
   }
+  if (selectedKeys.length === 0) {
+    return { yesterdayByTask, todayByTask };
+  }
   return {
     yesterdayByTask: pruneTaskTextMap(yesterdayByTask, selectedKeys),
     todayByTask: pruneTaskTextMap(todayByTask, selectedKeys),

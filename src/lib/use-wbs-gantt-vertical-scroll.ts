@@ -6,7 +6,8 @@ import { useEffect, type RefObject } from "react";
  */
 export function useWbsGanttVerticalScroll(
   rootRef: RefObject<HTMLDivElement | null>,
-  enabled: boolean
+  enabled: boolean,
+  remountKey?: string
 ): void {
   useEffect(() => {
     const root = rootRef.current;
@@ -75,5 +76,5 @@ export function useWbsGanttVerticalScroll(
       verticalTrack.removeEventListener("scroll", onTrackScroll);
       ro?.disconnect();
     };
-  }, [rootRef, enabled]);
+  }, [rootRef, enabled, remountKey]);
 }

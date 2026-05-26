@@ -12,6 +12,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Download,
   Loader2,
   Table2,
   UsersRound,
@@ -33,6 +34,7 @@ import {
   TEAM_MEMBER_PREFS_EVENT,
 } from "@/lib/team-member-preferences";
 import { buildTeamDailyLogRows } from "@/lib/team-daily-log";
+import { downloadDailyScrumExcel } from "@/lib/daily-scrum-excel-export";
 import type { ScrumEntry } from "@/lib/index";
 import { Card, SectionHeader } from "@/components/Stats";
 import { memberAvatarStyle, ui } from "@/lib/design-system";
@@ -250,6 +252,13 @@ export default function DailyScrumHistory() {
   const today = todayIso();
   const tableTitle =
     memberFilter === ALL_MEMBERS ? "팀 전체 일지" : `${memberName(memberFilter)} 일지`;
+  const handleDownloadExcel = () => {
+    downloadDailyScrumExcel({
+      date: dateFilter,
+      title: tableTitle,
+      rows: tableData,
+    });
+  };
 
   return (
     <div className="space-y-3">
@@ -358,6 +367,16 @@ export default function DailyScrumHistory() {
               ))}
             </div>
           </div>
+          <button
+            type="button"
+            onClick={handleDownloadExcel}
+            disabled={tableData.length === 0}
+            className={cn(ui.btnSecondary, "h-8 shrink-0 gap-1 px-2.5 text-xs")}
+            title="현재 일지 Excel 다운로드"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Excel 다운로드
+          </button>
         </div>
 
         {loadError ? (

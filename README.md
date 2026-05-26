@@ -103,7 +103,7 @@
 | 명령 | 설명 |
 |------|------|
 | `npm run clear:test-data` | Supabase 스크럼·일지 테스트 데이터 삭제 (JIRA 캐시 유지) |
-| `npm run test:interface` | **오프라인 통합 37건** — 데일리 스크럼·WBS·저장·상태 필터 |
+| `npm run test:interface` | **오프라인 통합 93건** — 데일리 스크럼·WBS·저장·상태 필터·Excel 내보내기 |
 | `npm run test:interface:live` | JIRA REST 실연동 (유효 `.env.local` 필요) |
 | `npm run verify:interface` | Supabase ↔ 앱 ↔ JIRA 3-way 검증 |
 | `npm run test:interface:all` | 위 명령 일괄 실행 |
@@ -155,7 +155,7 @@ npm install
 
 # 환경 변수 파일 생성 (.env.example 참고)
 cp .env.example .env.local
-# → .env.local 에 실제 값 입력 (아래 1.3 참고)
+# → .env.local 에 실제 값 입력 (아래 1.5 참고)
 
 # 개발 서버 실행
 npm run dev
@@ -185,7 +185,7 @@ http://localhost:5173/fass-dailyscrum/
 | `npm run test:supabase` | Supabase 연결 테스트 |
 | `npm run verify:jira-sync` | JIRA 동기화 설정 검증 |
 | `npm run clear:test-data` | Supabase 스크럼·일지 테스트 데이터 삭제 |
-| `npm run test:interface` | 오프라인 통합 테스트 (37건, env 불필요) |
+| `npm run test:interface` | 오프라인 통합 테스트 (93건, env 불필요) |
 | `npm run test:interface:live` | JIRA REST 통합 (`.env.local` + 토큰) |
 | `npm run verify:interface` | FWK 3-way + 담당자 DB 리포트 |
 | `npm run test:interface:all` | 인터페이스 + live + verify 일괄 |
@@ -198,7 +198,357 @@ TypeScript 검사 (권장):
 npx tsc --noEmit
 ```
 
-### 1.4 프론트엔드 환경 변수 (`.env.local`)
+### 1.4 통합 테스트 시나리오
+
+> **AI 전달용 지침** — 이 섹션은 향후 AI 어시스턴트가 기능 추가·버그 수정 후 직접 재현·검증할 수 있도록 작성했습니다.  
+> 각 시나리오마다 사전조건 → 조작 단계 → 기대 결과 → 연관 자동 테스트 파일을 명시합니다.  
+> **오프라인 자동 테스트**: `npm run test:interface` (93건, `.env` 불필요)  
+> **실연동 수동 테스트**: 아래 각 시나리오에 표기된 URL을 로컬(`npm run dev`) 또는 프로덕션에서 직접 조작합니다.
+
+---
+
+#### 공통 도메인 상수
+
+아래 값은 코드 전반(`src/lib/index.ts`, `tests/fixtures/`)에서 공유됩니다. 시나리오 기술 시 이 ID를 그대로 사용합니다.
+
+| 식별자 | 값 | 설명 |
+|--------|----|------|
+| `KIM_MEMBER_ID` | `"kim"` | 김희찬 — 백엔드 담당자 |
+| `LEE_MEMBER_ID` | `"lee"` | 이지상 — 프론트엔드 담당자 |
+| `SEO_MEMBER_ID` | `"seo"` | 서선범 — 데일리 스크럼 입력 제외 대상 |
+| 황금 이슈 키 | `"FWK-215"` | 진행 중(IN_PROGRESS) 이슈 (김희찬 담당) |
+| 할 일 이슈 키 | `"FWK-220"`, `"FWK-221"` | TODO 상태 — 선택 시 안내만 표시 |
+| Supabase 채널 | `"online-users"` | Presence Realtime 채널명 |
+| 스프린트 상태 값 | `"active"` / `"future"` / `"closed"` | WBS 필터에서 사용하는 열거값 |
+
+---
+
+#### IT-01 데일리 스크럼 입력 & 저장 유효성
+
+**목적** — 담당 이슈 선택 → 이슈별 텍스트 입력 → 저장 전 유효성 검사 흐름이 정확히 동작하는지 확인합니다.
+
+**사전 조건**
+- Supabase + JIRA 연동 완료, `kim` 계정으로 로그인
+- `FWK-215`(IN_PROGRESS), `FWK-220`(TODO) 이슈가 DB에 존재
+
+**조작 단계**
+
+1. `/daily` 진입 → 날짜 오늘로 설정
+2. 담당자 칩에서 **김희찬** 선택 (칩이 가로 스크롤로 보여야 하며 "이지상" 텍스트도 잘리지 않아야 함)
+3. 백로그 패널에서 기본 필터 **"진행 중"** 상태로 `FWK-215` 선택 (체크박스 클릭)
+4. **"오늘 계획"** textarea만 입력한 상태에서 **저장** 클릭
+   - **기대**: 저장 버튼이 비활성화 또는 `"FWK-215 전일 성과 입력 후 저장할 수 있습니다."` 안내 메시지 표시
+5. **"전일 성과"** textarea에 `"FWK-215 전일작업 완료"` 입력
+6. 이슈를 선택하지 않은 상태(deselect 후)에서 저장 시도
+   - **기대**: `"좌측 목록에서 담당 이슈 클릭(체크)으로 선택 후 저장할 수 있습니다."` 표시
+7. `FWK-215` 다시 선택, `FWK-217`(서브태스크)도 함께 선택 후 각 이슈별 전일·오늘 입력 → 저장
+   - **기대**: 저장 토스트 표시, `scrum_entries` + `scrum_task_logs` 양쪽에 행 삽입 확인
+
+**연관 자동 테스트**
+- `tests/interface-pipeline.test.mjs` — `isScrumFormSavable`, `getScrumSaveValidationMessage`, `sanitizeSelectedTaskKeys`
+- `tests/scrum-save-validation.test.mjs` — 유효성 케이스 전체 (8개)
+
+---
+
+#### IT-02 전일 불러오기 (이슈 교집합 이월)
+
+**목적** — "전일 불러오기" 버튼이 **현재 선택 이슈 ∩ 전일 담당 이슈**만 이월하고, 겹치지 않는 이슈에는 빈 값을 유지함을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/scrum-carryover.ts` — `intersectCarryoverTaskKeys`, `previousEntryTaskKeys`
+
+**사전 조건**
+- `kim` 계정의 어제(D-1) 스크럼 기록이 존재:
+  - `selectedTasks: ["FWK-215", "FWK-217"]`
+  - `FWK-215` 오늘 계획: `"API 설계 완료"`, `FWK-217` 오늘 계획: `"PR 리뷰 반영"`
+- 오늘 선택 이슈: `["FWK-215", "FWK-219"]` (FWK-217은 오늘 선택 안 함)
+
+**조작 단계**
+
+1. `/daily` → `kim` 담당자 → 오늘 날짜 → `FWK-215`, `FWK-219` 선택
+2. **"전일 불러오기"** 버튼 클릭
+3. 결과 확인:
+   - `FWK-215`의 "오늘 계획" 필드: `"API 설계 완료"` 이월됨 ✓
+   - `FWK-219`의 "오늘 계획" 필드: **빈 값 유지** (전일에 담당하지 않았으므로) ✓
+   - `FWK-217`(오늘 미선택): 화면에 표시 자체 없음 ✓
+4. 전일 기록이 없는 담당자(`song`)로 전환 후 전일 불러오기 → **아무 값도 채워지지 않아야 함**
+
+**레거시 호환 케이스** (자동 테스트로 커버)
+- 전일 기록의 `selectedTasks`가 빈 배열이고 본문에 `[FWK-10]`, `[FWK-20]` 블록이 있으면 `previousEntryTaskKeys`가 `["FWK-10", "FWK-20"]`을 반환
+
+**연관 자동 테스트**
+- `tests/scrum-carryover.test.mjs` — `intersectCarryoverTaskKeys`, `previousEntryTaskKeys`, `groupScrumTodayPlansByDate`
+
+---
+
+#### IT-03 담당 이슈 상태 필터 (ScrumTaskStatusFilter)
+
+**목적** — 백로그 패널의 상태 필터(라디오형) 전환이 이슈 목록에 즉시 반영되고, TODO 이슈 선택 시 적절한 안내가 표시됨을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/scrum-backlog.ts` — `SCRUM_TASK_STATUS_FILTER_DEFAULT`, `sanitizeSelectedTaskKeys`, `excludeParentsWithListedSubtasks`
+
+**조작 단계**
+
+1. `/daily` → `kim` 담당자
+2. 백로그 패널 상단 상태 필터: 기본값 **"진행 중"** → `FWK-215`만 표시됨 확인
+3. 필터를 **"할 일"** 로 전환 → `FWK-220`, `FWK-221` 표시, `FWK-215` 사라짐 확인
+4. `FWK-220`(TODO) 클릭 시도:
+   - **기대**: 체크가 되지 않거나 "JIRA에서 진행 중으로 변경 후 선택하세요" 안내 표시
+5. 필터를 **"검토 중"** → **"완료"** → 다시 **"진행 중"** 으로 빠르게 전환
+   - **기대**: 각 전환마다 렌더링 오류 없이 목록이 즉시 갱신
+6. 서브태스크 포함 이슈가 있을 때: 부모 이슈(`FWK-215`)와 서브태스크(`FWK-217`, `FWK-218`)가 함께 목록에 있으면 부모는 숨겨지고 서브태스크만 표시됨 확인
+
+**연관 자동 테스트**
+- `tests/scrum-task-status-filter-ui.test.mjs` — 라디오형 필터 전환 규칙
+- `tests/scrum-task-status-filter.test.mjs` — 상태 열거값 일관성
+- `tests/scrum-parent-subtask-filter.test.mjs` — `excludeParentsWithListedSubtasks` 6가지 케이스
+
+---
+
+#### IT-04 JIRA → DB → 앱 로직 파이프라인
+
+**목적** — JIRA API 응답이 DB에 upsert되고 앱 로직에서 올바른 타입·상태로 변환되는 종단 파이프라인을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/jira-issue-mapper.ts`, `src/lib/supabase/jira-repository.ts`, `src/lib/scrum-jira-reconcile.ts`
+
+**자동 테스트로 완전히 커버** (오프라인)
+
+| 검증 항목 | 테스트 케이스 | 파일 |
+|-----------|---------------|------|
+| DB row → `JiraTask` 변환 시 `issue_key`가 `task.key`로 보존 | `jiraTaskFromDbRow: issue_key가 task.key로 보존` | `interface-pipeline.test.mjs` |
+| JIRA `"진행 중"` → `IN_PROGRESS` 매핑 | `mapJiraStatus: FWK-215 진행 중 → IN_PROGRESS` | ibid. |
+| JIRA `"해야 할 일"` → `TODO` 매핑 | `mapJiraStatus: FWK-220/221 해야 할 일 → TODO` | ibid. |
+| 담당자 id·이름·초성 매칭 | `taskIsAssignedToMember: kim id·이름·찬 단일 글자` | ibid. |
+| TODO 이슈는 `selectedTasks`에서 sanitize 후 제거 | `sanitizeSelectedTaskKeys: TODO 제거 후 FWK-215만` | ibid. |
+| 동기화 후 존재하지 않는 이슈 키 제거 | `reconcileScrumEntriesWithJiraTasks: 없는 FWK 키 제거` | ibid. |
+
+**수동 확인 (실연동)**
+```bash
+npm run sync:jira:all   # 스프린트 + 이슈 Supabase upsert
+npm run verify:interface  # 3-way 검증 리포트 출력
+```
+
+---
+
+#### IT-05 스크럼 태스크 필드 직렬화·역직렬화
+
+**목적** — 이슈 키별 전일·오늘 텍스트가 직렬화(저장) → 역직렬화(불러오기) 왕복 후 동일한 값으로 복원됨을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/scrum-task-fields.ts` — `serializeTaskTexts`, `parseLegacyTaskTexts`, `pruneTaskTextMap`, `taskLogsToMaps`, `buildTaskLogRows`
+
+**자동 테스트 커버 케이스** (`tests/scrum-task-fields.test.mjs`)
+
+1. **pruneTaskTextMap** — `{ "FWK-215": "a", "FWK-217": "b", "FWK-999": "x" }` 에서 `["FWK-215", "FWK-217"]`만 추려 `FWK-999` 제거
+2. **serialize → parse 왕복** — `{ "FWK-215": "전일 A", "FWK-217": "전일 B" }` → 직렬화 → 파싱 후 동일 맵 복원
+3. **taskLogsToMaps** — DB rows를 `yesterdayByTask`, `todayByTask` 맵으로 변환, 없는 키는 빈 문자열
+4. **buildTaskLogRows** — `jira_issue_id`(`"jira-id-215"`)가 rows에 포함됨을 확인
+
+---
+
+#### IT-06 스크럼 일지 Excel 다운로드
+
+**목적** — `/scrum/history` 의 현재 필터 기준으로 `.xls` 파일이 내려받아지고, Excel에서 한글·줄바꿈·HTML 이스케이프가 정상적으로 표현됨을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/daily-scrum-excel-export.ts` — `buildDailyScrumExcelHtml`, `dailyScrumExcelFilename`, `downloadDailyScrumExcel`
+
+**자동 테스트 커버 케이스** (`tests/daily-scrum-excel-export.test.mjs`)
+
+| 검증 항목 | 기대값 |
+|-----------|--------|
+| 한글 헤더 포함 여부 | HTML에 `데일리` 또는 제목 문자열, `담당자`, `전일 성과` 포함 |
+| HTML 특수문자 이스케이프 | `<성과>` → `&lt;성과&gt;` |
+| 줄바꿈 변환 | `"오늘 계획\n두 번째 줄"` → `오늘 계획<br />두 번째 줄` |
+| 미입력 셀 표시 | `null` 병목 → `미입력` 표시 |
+| 파일명 특수문자 제거 | `'팀/전체:"일지"'` → `팀_전체__일지_` (슬래시·콜론·따옴표 → `_`) |
+| 파일명 형식 | `"데일리_스크럼_일지_2026-05-26_팀_전체__일지_.xls"` |
+
+**수동 확인 절차**
+
+1. `/scrum/history` 진입
+2. 일자 필터: `2026-05-26` 전후 범위, 담당자: **전체**
+3. **Excel 다운로드** 버튼 클릭 → `.xls` 파일 저장
+4. Excel/LibreOffice에서 열어 확인:
+   - 헤더 행: `날짜 | 담당자 | 담당 이슈 | 전일 성과 | 오늘 계획 | 병목`
+   - 줄바꿈이 있는 셀: 셀 내 줄바꿈으로 표시 (행 높이 자동 조정)
+   - 한글: 깨짐 없음 (BOM `\uFEFF` 포함)
+5. 담당자 필터를 **김희찬**만으로 변경 후 재다운로드 → 파일명에 담당자 포함 여부 확인
+
+---
+
+#### IT-07 WBS/Gantt 필터·토글 상태 일관성
+
+**목적** — 스프린트 상태 드롭다운 반복 조작과 "진행 중 펼치기/접기" 연속 실행 후에도 좌측 트리·Gantt 막대·버튼 문구가 항상 동기화되어 렌더링 오류가 없음을 확인합니다.
+
+**핵심 로직 파일**
+- `src/lib/wbs-gantt-filter-state.ts` — `pruneWbsExpandedSet`, `pruneWbsExpandedForFilters`, `toggleWbsInProgressExpanded`, `buildWbsGanttRemountKey`, `wbsExpandedForVisibleSprints`
+- `src/components/JiraWbsGanttView.tsx` — `ganttRemountKey`, `expandedForRender`, `commitExpandedPrune`
+
+**자동 테스트 커버 케이스** (`tests/wbs-gantt-filter-state.test.mjs`)
+
+| 검증 항목 | 케이스 |
+|-----------|--------|
+| 필터 변경 시 숨겨진 스프린트의 expanded 항목 즉시 제거 | `pruneWbsExpandedSet` |
+| 진행 중 스프린트 일괄 펼치기 → 접기 토글 | `toggleWbsInProgressExpanded: expand then collapse` |
+| 부분 펼침 상태에서 토글 → 누락된 항목만 추가 | `toggleWbsInProgressExpanded: partial expand` |
+| 상태 필터 변경 → remount key 변경 | `buildWbsGanttRemountKey: changes when status filter changes` |
+| 동일 board 객체 참조 변경 시 revision key 유지 | `wbsBoardRevisionKey: stable when sprint ids and task count unchanged` |
+| Set을 정렬된 문자열로 변환 | `wbsSetToStableKey: order independent` |
+| 필터 적용 후 미표시 스프린트의 expanded 제거 | `pruneWbsExpandedForFilters: drops expand ids not in filtered sprint rows` |
+| 같은 렌더 사이클에서 stale expanded 플래시 없음 | `wbsExpandedForVisibleSprints: same render cycle as filter` |
+| 간트 task id 시퀀스 안정성 | `wbsGanttTaskIdSequence` |
+
+**수동 확인 절차** (`/jira/wbs`)
+
+1. **상태 필터 반복 조작**
+   - "상태: 전체" 드롭다운 클릭 → `active` 선택 → 드롭다운 닫기
+   - 같은 드롭다운 재클릭 → `future` 추가 선택 → 닫기
+   - **기대**: 좌측 스프린트 목록과 우측 Gantt 막대가 필터 결과와 일치, 버튼 문구 `상태: 2종 선택`
+2. **진행 중 펼치기/접기 연속 클릭**
+   - "진행 중 펼치기" 버튼 클릭 → active 스프린트 모두 펼쳐짐
+   - 즉시 같은 버튼("진행 중 접기") 재클릭 → 모두 접힘
+   - 이 동작을 3회 연속 반복
+   - **기대**: 버튼 문구·트리·Gantt 막대가 항상 동기화, 콘솔 오류 없음
+3. **필터 전환 + 펼치기 조합**
+   - `active` 필터 적용 → "진행 중 펼치기" → 필터를 `closed`로 변경
+   - **기대**: closed 스프린트는 펼쳐지지 않고, 이전 active 스프린트의 expanded 상태가 정리됨
+4. **담당자 필터**
+   - 담당자 드롭다운에서 특정 멤버(예: `kim`) 선택 → Gantt에 해당 멤버 이슈만 표시
+   - 전체 선택 복원 → 모든 이슈 복원
+
+---
+
+#### IT-08 WBS Gantt 막대 라벨 표시 규칙
+
+**목적** — 접힌 스프린트는 막대 안에 `[S14]` 코드만, 펼쳐진 스프린트와 태스크는 우측 Gantt 텍스트 없이 좌측 테이블로만 표시됨을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/jira-wbs-gantt.ts` — `mapWbsRowsToGanttTasks`
+
+**자동 테스트 커버 케이스** (`tests/jira-wbs-gantt-labels.test.mjs`)
+
+| 상태 | `gantt-task-react` name 값 | `hideChildren` | `treeLabel` (좌측 테이블) |
+|------|---------------------------|----------------|--------------------------|
+| 접힌 스프린트 | `"[S14]"` | `true` | `"[S14] AI 연동 모듈 개발"` |
+| 펼친 스프린트 | `""` (빈 문자열) | `false` | `"[S14] AI 연동 모듈 개발"` |
+| 펼친 태스크 | `""` (빈 문자열) | — | 태스크 전체 이름 |
+
+**수동 확인**: `/jira/wbs` 에서 특정 스프린트 행을 클릭해 펼치면 Gantt 막대 내 텍스트가 사라지고 좌측 테이블에만 이름이 표시됨.
+
+---
+
+#### IT-09 애널리틱스 — 팀원 기여도 & 병목
+
+**목적** — JIRA 실데이터 집계 함수가 팀원별 완료율을 올바르게 계산하고, 스크럼·JIRA 양쪽 병목이 합산됨을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/jira-live-data.ts`, `src/lib/analytics-blockers.ts`
+
+**자동 테스트 커버 케이스**
+
+`tests/analytics-member-contribution.test.mjs` — `memberTaskCompletionCounts`
+
+| 케이스 | 기대 결과 |
+|--------|-----------|
+| `lee` 담당 이슈 2건 중 1건 DONE | `{ total: 2, done: 1, pct: 50 }` |
+| JIRA account id 대신 display name으로 매칭 | 동일 멤버로 인식 |
+| 미배정(`—`) 이슈는 `lee` 집계에서 제외 | `{ total: 0, done: 0, pct: 0 }` |
+| IN_PROGRESS → DONE 상태 변경 후 재집계 | `pct` 0 → 100 반영 |
+
+`tests/analytics-scrum-blockers.test.mjs` — `analyticsBlockerCounts`, `mergeAnalyticsBlockers`
+
+| 케이스 | 기대 결과 |
+|--------|-----------|
+| `"병목없음"`, `""`, `"없음"` | `isMeaningfulScrumBlocker` → `false` |
+| `"DB 마이그레이션 대기"` | `isMeaningfulScrumBlocker` → `true` |
+| 스크럼 병목 + JIRA BLOCKED 이슈 병합 | `counts.scrum = 1`, `counts.jira = 1` |
+| 30일 이전 스크럼 항목 | `daysBack: 14` 조건에서 제외 |
+
+**수동 확인**: `/analytics` 진입 → 팀원별 완료율 차트, 병목 목록이 최신 JIRA 동기화 기준으로 갱신됨.
+
+---
+
+#### IT-10 팀원 실시간 접속 현황 (Presence)
+
+**목적** — Supabase Realtime `"online-users"` 채널을 통해 팀원 접속/이탈이 실시간으로 반영됨을 확인합니다.
+
+**핵심 로직 파일**: `src/lib/realtime/team-presence.ts` — `parseOnlineMemberIds`, `parseOnlineUsers`, `TEAM_PRESENCE_CHANNEL`
+
+**자동 테스트 커버 케이스** (`tests/team-presence.test.mjs`)
+
+| 케이스 | 기대 결과 |
+|--------|-----------|
+| Presence 채널 이름 고정 | `TEAM_PRESENCE_CHANNEL === "online-users"` |
+| 빈 presence state | `parseOnlineMemberIds({})` → `size === 0` |
+| 2개 세션 → 2명 온라인 | `ids.has("seo") && ids.has("lee")` |
+| 동일 멤버 다중 탭 | 중복 제거 → `size === 1` |
+| `member_id` 없는 항목 무시 | 빈 `member_id` 필터링 |
+| 사이드바 온라인 카운트 | `TEAM_MEMBERS`(7명) 중 presence 일치 멤버만 카운트 |
+| 미등록 `member_id` 무시 | `"unknown"` → 카운트 0 |
+
+**수동 확인 절차**
+
+1. 브라우저 A에서 `seo` 계정으로 로그인 → 사이드바 팀원 아이콘에 녹색 dot 표시
+2. 브라우저 B(시크릿)에서 `kim` 계정으로 로그인 → 브라우저 A에서 `kim` dot 추가 확인
+3. 브라우저 B 탭 닫기 → 브라우저 A에서 `kim` dot 사라짐 확인 (5초 이내)
+4. `seo` 계정은 데일리 스크럼 담당자 목록에 표시되지 않지만 Presence에는 표시됨을 확인
+
+---
+
+#### IT-11 설정 데이터 일괄삭제
+
+**목적** — 설정 화면의 일괄삭제 팝업 승인 시 스크럼 항목만 삭제되고, `scrum_task_logs` 등 보존 대상 테이블은 정책에 따라 처리됨을 확인합니다.
+
+**사전 조건**: 테스트 데이터 존재 (`npm run clear:test-data` 실행 전 상태)
+
+**조작 단계**
+
+1. 설정(`/settings`) 진입 → **"데이터 일괄삭제"** 섹션 확인
+2. 삭제 범위 옵션 확인 (특정 날짜 이전, 특정 담당자 등)
+3. 확인 팝업의 **"취소"** 클릭 → 데이터 변화 없음 확인
+4. 다시 일괄삭제 → **"확인"** 클릭
+   - **기대**: `scrum_entries` 행 삭제, 성공 토스트 표시
+   - JIRA 캐시 테이블(`jira_tasks`, `jira_sprints`)은 유지됨 확인
+5. Supabase 대시보드 또는 `npm run verify:interface` 로 삭제 결과 검증
+
+**CLI 대안**:
+```bash
+npm run clear:test-data  # env 파일 없이 실행 불가; .env.local 필요
+```
+
+---
+
+#### IT-12 이슈 키 마이그레이션 & 백로그 이슈 upsert
+
+**목적** — 구버전 레거시 이슈 키 포맷(문자열 본문 내 `[FWK-*]` 블록)이 `selectedTasks` 배열로 올바르게 마이그레이션되고, upsert 시 중복 없이 처리됨을 확인합니다.
+
+**연관 자동 테스트**
+- `tests/scrum-issue-key-migration.test.mjs`
+- `tests/jira-tasks-upsert.test.mjs`
+- `tests/scrum-backlog.test.mjs`
+
+---
+
+#### 자동 테스트 실행 가이드
+
+**전체 오프라인 통합 테스트 (93건, 환경변수 불필요)**:
+```bash
+npm run test:interface
+```
+
+**실연동 테스트 (`.env.local` + JIRA 토큰 필요)**:
+```bash
+npm run test:interface:live
+npm run verify:interface
+```
+
+**빌드 후 배포 전 최소 확인 체크리스트**:
+```bash
+npm run test:interface   # 1. 오프라인 유닛+통합 — 전부 pass 확인
+npx tsc --noEmit         # 2. TypeScript 타입 오류 없음
+npm run lint             # 3. ESLint 오류 없음
+npm run build            # 4. 프로덕션 빌드 성공
+```
+
+**권장 시나리오 실행 순서** (수동): IT-01 → IT-03 → IT-02 → IT-06 → IT-07 → IT-08 → IT-09 → IT-10 → IT-11
+
+### 1.5 프론트엔드 환경 변수 (`.env.local`)
 
 `.env.example`을 복사해 사용합니다. **민감 정보는 Git에 커밋하지 마세요.**
 
@@ -261,7 +611,7 @@ JIRA_PROXY_TLS_INSECURE=1
 JIRA_TEST_TLS_INSECURE=1
 ```
 
-### 1.5 Supabase Edge Function 시크릿 (Dashboard)
+### 1.6 Supabase Edge Function 시크릿 (Dashboard)
 
 프론트 `.env`와 별도로 **Supabase Dashboard → Edge Functions → Secrets** 에 설정합니다.
 
@@ -276,7 +626,7 @@ JIRA_TEST_TLS_INSECURE=1
 
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`는 Edge 런타임에 자동 주입되는 경우가 많습니다.
 
-### 1.6 첫 로그인·화면 확인
+### 1.7 첫 로그인·화면 확인
 
 1. `npm run dev` → `http://localhost:<port>/fass-dailyscrum/` 접속  
 2. **로그인** (`/login`) — `app_users` RPC 기반 커스텀 인증 (Supabase Auth 미사용)  

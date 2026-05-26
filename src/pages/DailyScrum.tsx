@@ -611,33 +611,38 @@ export default function DailyScrum() {
   useEffect(() => {
     if (!canonicalSprintId || !activeMember) return;
     const entry = findScrumEntry(scrumDate, activeMember, canonicalSprintId);
-    const keys =
-      (entry?.selectedTasks.length ?? 0) > 0
-        ? [...(entry?.selectedTasks ?? [])]
-        : mergedSelectedTasks;
     void resolveScrumFormTaskFields(
       scrumDate,
       activeMember,
       canonicalSprintId,
-      keys,
+      [],
       entry?.yesterday ?? "",
       entry?.today ?? ""
     ).then((fields) => {
       setForms((prev) => {
         const k = formKey(activeMember, canonicalSprintId);
         const cur = prev[k] ?? buildFormFromHistory(scrumDate, activeMember, canonicalSprintId);
-        const selected = cur.selectedTasks.length > 0 ? cur.selectedTasks : keys;
+        const dbKeys = Object.keys(fields.yesterdayByTask);
+        const selectedKeys =
+          (entry?.selectedTasks.length ?? 0) > 0
+            ? entry!.selectedTasks
+            : dbKeys.length > 0
+              ? dbKeys
+              : cur.selectedTasks.length > 0
+                ? cur.selectedTasks
+                : mergedSelectedTasks;
         return {
           ...prev,
           [k]: {
             ...cur,
-            yesterdayByTask: pruneTaskTextMap(fields.yesterdayByTask, selected),
-            todayByTask: pruneTaskTextMap(fields.todayByTask, selected),
+            selectedTasks: selectedKeys,
+            yesterdayByTask: fields.yesterdayByTask,
+            todayByTask: fields.todayByTask,
           },
         };
       });
     });
-  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision]);
+  }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision, mergedSelectedTasks]);
 
   const taskPickerEmptyMessage =
     assignedTasks.length === 0
@@ -1108,7 +1113,7 @@ export default function DailyScrum() {
   return (
     <div className="flex h-[calc(100dvh-5.25rem)] max-h-[calc(100dvh-5.25rem)] min-h-[28rem] flex-col gap-2 overflow-hidden text-xs">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-x-auto pr-1">
         {DAILY_SCRUM_MEMBERS.map((m) => {
           const on = activeMember === m.id;
           const has = memberFormHasContent(forms, m.id);
@@ -1124,7 +1129,7 @@ export default function DailyScrum() {
                 setSaveError(null);
               }}
               className={cn(
-                "inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-300 ease-in-out hover:scale-[1.01] active:scale-[0.98]",
+                "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition-all duration-300 ease-in-out hover:scale-[1.01] active:scale-[0.98]",
                 on ? "shadow-sm" : "border-border/60 bg-card/80 text-muted-foreground hover:bg-muted/50"
               )}
               style={

@@ -52,6 +52,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { useWbsGanttHorizontalScroll } from "@/lib/use-wbs-gantt-horizontal-scroll";
 import { useWbsGanttVerticalScroll } from "@/lib/use-wbs-gantt-vertical-scroll";
+import {
+  buildWbsGanttRemountKey,
+  pruneWbsExpandedSet,
+  toggleWbsInProgressExpanded,
+  pruneWbsExpandedForFilters,
+  wbsBoardRevisionKey,
+  wbsExpandedSetsEqual,
+  wbsSetToStableKey,
+} from "@/lib/wbs-gantt-filter-state";
 
 const LIST_COL = {
   tree: 200,
@@ -294,6 +303,8 @@ export function JiraWbsGanttView() {
     () => new Set(WBS_DEFAULT_SPRINT_STATUSES)
   );
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Week);
+  const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
+  const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
   const [board, setBoard] = useState<Awaited<ReturnType<typeof fetchJiraSprintBoardFromDb>> | null>(null);
   const ganttWrapRef = useRef<HTMLDivElement>(null);
   const ganttRootRef = useRef<HTMLDivElement>(null);
@@ -320,7 +331,11 @@ export function JiraWbsGanttView() {
   useEffect(() => {
     void load();
     if (!configured) return;
-    return subscribeJiraSprints(() => void load());
+    let debounceId: ReturnType<typeof setTimeout> | undefined;
+    return subscribeJiraSprints(() => {
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(() => void load(), 400);
+    });
   }, [configured, load]);
 
   useEffect(() => {
@@ -337,6 +352,11 @@ export function JiraWbsGanttView() {
 
   const assigneeFilterActive = selectedAssignees != null && selectedAssignees.size > 0;
   const allStatusesSelected = selectedSprintStatuses.size === WBS_SPRINT_STATUS_OPTIONS.length;
+  const boardRevisionKey = wbsBoardRevisionKey(board);
+  const sprintStatusKey = wbsSetToStableKey(selectedSprintStatuses);
+  const assigneeFilterKey = assigneeFilterActive
+    ? wbsSetToStableKey(selectedAssignees!)
+    : "*";
 
   const assigneeOptions = useMemo(() => {
     if (!board) return [];
@@ -346,7 +366,7 @@ export function JiraWbsGanttView() {
   const statusFilteredSprints = useMemo(() => {
     if (!board) return [];
     return filterSprintsByWbsStatus(board.sprints, selectedSprintStatuses);
-  }, [board, selectedSprintStatuses]);
+  }, [board, boardRevisionKey, sprintStatusKey]);
 
   const statusFilterEmpty = board != null && statusFilteredSprints.length === 0;
 
@@ -354,9 +374,6 @@ export function JiraWbsGanttView() {
     () => statusFilteredSprints.filter((s) => isSprintInProgress(s.status)).map((s) => sprintExpandId(s)),
     [statusFilteredSprints]
   );
-
-  const allInProgressExpanded =
-    inProgressSprintIds.length > 0 && inProgressSprintIds.every((id) => expanded.has(id));
 
   const { sprintRows } = useMemo(() => {
     if (!board) return { sprintRows: [] as ReturnType<typeof buildWbsModel>["sprintRows"] };
@@ -367,13 +384,96 @@ export function JiraWbsGanttView() {
       selectedAssignees
     );
     return buildWbsModel(sprints, tasksBySprintId);
-  }, [board, selectedSprintStatuses, selectedAssignees]);
+  }, [board, boardRevisionKey, sprintStatusKey, assigneeFilterKey]);
 
-  const flatRows = useMemo(() => flattenWbsRows(sprintRows, expanded), [sprintRows, expanded]);
+  const visibleSprintIds = useMemo(
+    () => sprintRows.map((s) => s.id),
+    [sprintRows]
+  );
+
+  const visibleSprintIdKey = useMemo(
+    () => visibleSprintIds.join("\u0001"),
+    [visibleSprintIds]
+  );
+
+  const expandedKey = useMemo(() => wbsSetToStableKey(expanded), [expanded]);
+
+  /** 필터와 동일 렌더 사이클에 적용 — useEffect 지연으로 인한 1프레임 불일치 방지 */
+  const expandedForRender = useMemo(
+    () => pruneWbsExpandedSet(expanded, visibleSprintIds),
+    [expanded, expandedKey, visibleSprintIdKey, visibleSprintIds]
+  );
+
+  const allInProgressExpanded =
+    inProgressSprintIds.length > 0 &&
+    inProgressSprintIds.every((id) => expandedForRender.has(id));
+
+  const commitExpandedPrune = useCallback(
+    (statuses: Set<WbsSprintStatusKind>, assignees: Set<string> | null) => {
+      if (!board) return;
+      setExpanded((prev) => {
+        const pruned = pruneWbsExpandedForFilters(prev, board, statuses, assignees);
+        return wbsExpandedSetsEqual(prev, pruned) ? prev : pruned;
+      });
+    },
+    [board]
+  );
+
+  const handleToggleSprintStatus = useCallback(
+    (kind: WbsSprintStatusKind, checked: boolean) => {
+      const next = new Set(selectedSprintStatuses);
+      if (checked) next.add(kind);
+      else if (next.size > 1) next.delete(kind);
+      setSelectedSprintStatuses(next);
+      commitExpandedPrune(next, selectedAssignees);
+    },
+    [selectedSprintStatuses, selectedAssignees, commitExpandedPrune]
+  );
+
+  const handleSelectAllSprintStatuses = useCallback(() => {
+    const all = new Set(WBS_SPRINT_STATUS_OPTIONS.map((o) => o.kind));
+    setSelectedSprintStatuses(all);
+    commitExpandedPrune(all, selectedAssignees);
+    setStatusPopoverOpen(false);
+  }, [selectedAssignees, commitExpandedPrune]);
+
+  const handleSelectAllAssignees = useCallback(() => {
+    setSelectedAssignees(null);
+    commitExpandedPrune(selectedSprintStatuses, null);
+    setAssigneePopoverOpen(false);
+  }, [selectedSprintStatuses, commitExpandedPrune]);
+
+  const handleToggleAssignee = useCallback(
+    (name: string, checked: boolean) => {
+      const next = new Set(selectedAssignees ?? []);
+      if (checked) next.add(name);
+      else next.delete(name);
+      const resolved = next.size === 0 ? null : next;
+      setSelectedAssignees(resolved);
+      commitExpandedPrune(selectedSprintStatuses, resolved);
+    },
+    [selectedAssignees, selectedSprintStatuses, commitExpandedPrune]
+  );
+
+  const ganttRemountKey = useMemo(
+    () =>
+      buildWbsGanttRemountKey({
+        viewMode,
+        sprintStatuses: selectedSprintStatuses,
+        assigneeFilterActive,
+        selectedAssignees,
+      }),
+    [viewMode, selectedSprintStatuses, assigneeFilterActive, selectedAssignees]
+  );
+
+  const flatRows = useMemo(
+    () => flattenWbsRows(sprintRows, expandedForRender),
+    [sprintRows, expandedForRender]
+  );
 
   const { tasks, metaByTaskId } = useMemo(
-    () => mapWbsRowsToGanttTasks(flatRows, expanded),
-    [flatRows, expanded]
+    () => mapWbsRowsToGanttTasks(flatRows, expandedForRender),
+    [flatRows, expandedForRender]
   );
 
   const ganttTasks = useMemo(
@@ -386,6 +486,8 @@ export function JiraWbsGanttView() {
       ),
     [tasks]
   );
+
+  const displayGanttTasks = useMemo(() => ganttTaskDisplayRows(ganttTasks), [ganttTasks]);
 
   const preStepsCount = useMemo(
     () => computeWbsGanttPreSteps(ganttTasks, viewMode),
@@ -405,8 +507,9 @@ export function JiraWbsGanttView() {
   );
 
   const ganttScrollReady = !loading && !statusFilterEmpty && sprintRows.length > 0;
-  useWbsGanttHorizontalScroll(ganttRootRef, ganttScrollReady);
-  useWbsGanttVerticalScroll(ganttRootRef, ganttScrollReady);
+
+  useWbsGanttHorizontalScroll(ganttRootRef, ganttScrollReady, ganttRemountKey);
+  useWbsGanttVerticalScroll(ganttRootRef, ganttScrollReady, ganttRemountKey);
 
   useEffect(() => {
     const root = ganttRootRef.current;
@@ -415,7 +518,7 @@ export function JiraWbsGanttView() {
     const hScrollEl = root.querySelector<HTMLElement>("._2k9Ys");
     timelineEl?.scrollTo({ left: 0 });
     if (hScrollEl) hScrollEl.scrollLeft = 0;
-  }, [timeline.startDate, timeline.viewDate, viewMode, ganttTasks.length]);
+  }, [timeline.startDate, timeline.viewDate, viewMode, ganttRemountKey, displayGanttTasks.length]);
 
   const listProps: GanttListProps = useMemo(
     () => ({
@@ -423,7 +526,7 @@ export function JiraWbsGanttView() {
       rowWidth: `${LIST_WIDTH}px`,
       fontFamily: "var(--font-sans)",
       fontSize: "11px",
-      tasks: ganttTasks,
+      tasks: displayGanttTasks,
       metaByTaskId,
       locale: "ko",
       selectedTaskId: "",
@@ -437,7 +540,7 @@ export function JiraWbsGanttView() {
         });
       },
     }),
-    [ganttTasks, metaByTaskId]
+    [displayGanttTasks, metaByTaskId]
   );
 
   const toggleExpand = (id: string) => {
@@ -451,13 +554,8 @@ export function JiraWbsGanttView() {
 
   const toggleInProgressSprints = () => {
     setExpanded((prev) => {
-      const next = new Set(prev);
-      if (allInProgressExpanded) {
-        for (const id of inProgressSprintIds) next.delete(id);
-      } else {
-        for (const id of inProgressSprintIds) next.add(id);
-      }
-      return next;
+      const pruned = pruneWbsExpandedSet(prev, visibleSprintIds);
+      return toggleWbsInProgressExpanded(pruned, inProgressSprintIds);
     });
   };
 
@@ -504,30 +602,18 @@ export function JiraWbsGanttView() {
                 inProgressCount={inProgressSprintIds.length}
                 allInProgressExpanded={allInProgressExpanded}
                 onToggleInProgress={toggleInProgressSprints}
+                statusPopoverOpen={statusPopoverOpen}
+                onStatusPopoverOpenChange={setStatusPopoverOpen}
+                assigneePopoverOpen={assigneePopoverOpen}
+                onAssigneePopoverOpenChange={setAssigneePopoverOpen}
                 selectedSprintStatuses={selectedSprintStatuses}
                 allStatusesSelected={allStatusesSelected}
-                onToggleSprintStatus={(kind, checked) => {
-                  setSelectedSprintStatuses((prev) => {
-                    const next = new Set(prev);
-                    if (checked) next.add(kind);
-                    else if (next.size > 1) next.delete(kind);
-                    return next;
-                  });
-                }}
-                onSelectAllSprintStatuses={() =>
-                  setSelectedSprintStatuses(new Set(WBS_SPRINT_STATUS_OPTIONS.map((o) => o.kind)))
-                }
+                onToggleSprintStatus={handleToggleSprintStatus}
+                onSelectAllSprintStatuses={handleSelectAllSprintStatuses}
                 assigneeOptions={assigneeOptions}
                 selectedAssignees={selectedAssignees}
-                onSelectAllAssignees={() => setSelectedAssignees(null)}
-                onToggleAssignee={(name, checked) => {
-                  setSelectedAssignees((prev) => {
-                    const next = new Set(prev ?? []);
-                    if (checked) next.add(name);
-                    else next.delete(name);
-                    return next.size === 0 ? null : next;
-                  });
-                }}
+                onSelectAllAssignees={handleSelectAllAssignees}
+                onToggleAssignee={handleToggleAssignee}
                 assigneeFilterActive={assigneeFilterActive}
               />
             </div>
@@ -600,6 +686,7 @@ export function JiraWbsGanttView() {
             }
           >
             <Gantt
+              key={ganttRemountKey}
               tasks={ganttTasks}
               viewMode={viewMode}
               locale="ko"
@@ -631,14 +718,16 @@ export function JiraWbsGanttView() {
               )}
               TaskListTable={({ rowHeight, fontFamily, fontSize, tasks: listTasks, selectedTaskId, setSelectedTask }) => (
                 <WbsGanttTaskListTable
-                  {...listProps}
                   rowHeight={rowHeight}
+                  rowWidth={`${LIST_WIDTH}px`}
                   fontFamily={fontFamily}
                   fontSize={fontSize}
                   tasks={listTasks}
+                  metaByTaskId={listProps.metaByTaskId}
+                  locale={listProps.locale}
                   selectedTaskId={selectedTaskId}
                   setSelectedTask={setSelectedTask}
-                  rowWidth={`${LIST_WIDTH}px`}
+                  onExpanderClick={listProps.onExpanderClick}
                 />
               )}
               onExpanderClick={(task) => {
@@ -706,6 +795,10 @@ function WbsGanttToolbar({
   inProgressCount,
   allInProgressExpanded,
   onToggleInProgress,
+  statusPopoverOpen,
+  onStatusPopoverOpenChange,
+  assigneePopoverOpen,
+  onAssigneePopoverOpenChange,
   selectedSprintStatuses,
   allStatusesSelected,
   onToggleSprintStatus,
@@ -719,6 +812,10 @@ function WbsGanttToolbar({
   inProgressCount: number;
   allInProgressExpanded: boolean;
   onToggleInProgress: () => void;
+  statusPopoverOpen: boolean;
+  onStatusPopoverOpenChange: (open: boolean) => void;
+  assigneePopoverOpen: boolean;
+  onAssigneePopoverOpenChange: (open: boolean) => void;
   selectedSprintStatuses: Set<WbsSprintStatusKind>;
   allStatusesSelected: boolean;
   onToggleSprintStatus: (kind: WbsSprintStatusKind, checked: boolean) => void;
@@ -734,7 +831,7 @@ function WbsGanttToolbar({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Popover>
+      <Popover modal={false} open={statusPopoverOpen} onOpenChange={onStatusPopoverOpenChange}>
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
             <ListFilter className="h-3.5 w-3.5" />
@@ -742,21 +839,54 @@ function WbsGanttToolbar({
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-52 rounded-xl p-2 shadow-lg">
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60">
-            <Checkbox checked={allStatusesSelected} onCheckedChange={() => onSelectAllSprintStatuses()} />
+          <div
+            role="button"
+            tabIndex={0}
+            className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60"
+            onClick={() => onSelectAllSprintStatuses()}
+            onKeyDown={(e) => e.key === "Enter" && onSelectAllSprintStatuses()}
+          >
+            <Checkbox
+              checked={allStatusesSelected}
+              onCheckedChange={() => onSelectAllSprintStatuses()}
+              onClick={(e) => e.stopPropagation()}
+            />
             <span className="text-xs font-medium">전체 상태</span>
-          </label>
+          </div>
           <div className="my-1 border-t border-border/50" />
-          {WBS_SPRINT_STATUS_OPTIONS.map(({ kind, label }) => (
-            <label key={kind} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60">
-              <Checkbox
-                checked={selectedSprintStatuses.has(kind)}
-                disabled={selectedSprintStatuses.size === 1 && selectedSprintStatuses.has(kind)}
-                onCheckedChange={(v) => onToggleSprintStatus(kind, v === true)}
-              />
-              <span className="text-xs">{label}</span>
-            </label>
-          ))}
+          {WBS_SPRINT_STATUS_OPTIONS.map(({ kind, label }) => {
+            const checked = selectedSprintStatuses.has(kind);
+            const disabled =
+              selectedSprintStatuses.size === 1 && selectedSprintStatuses.has(kind);
+            return (
+              <div
+                key={kind}
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                aria-disabled={disabled}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5",
+                  disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-muted/60"
+                )}
+                onClick={() => {
+                  if (disabled) return;
+                  onToggleSprintStatus(kind, !checked);
+                }}
+                onKeyDown={(e) => {
+                  if (disabled || e.key !== "Enter") return;
+                  onToggleSprintStatus(kind, !checked);
+                }}
+              >
+                <Checkbox
+                  checked={checked}
+                  disabled={disabled}
+                  onCheckedChange={(v) => onToggleSprintStatus(kind, v === true)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <span className="text-xs">{label}</span>
+              </div>
+            );
+          })}
         </PopoverContent>
       </Popover>
 
@@ -772,7 +902,7 @@ function WbsGanttToolbar({
         {allInProgressExpanded ? "진행 중 접기" : "진행 중 펼치기"}
       </Button>
 
-      <Popover>
+      <Popover modal={false} open={assigneePopoverOpen} onOpenChange={onAssigneePopoverOpenChange}>
         <PopoverTrigger asChild>
           <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
             <Users className="h-3.5 w-3.5" />
@@ -780,30 +910,61 @@ function WbsGanttToolbar({
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-56 rounded-xl p-2 shadow-lg">
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60">
-            <Checkbox checked={!assigneeFilterActive} onCheckedChange={() => onSelectAllAssignees()} />
+          <div
+            role="button"
+            tabIndex={0}
+            className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60"
+            onClick={() => onSelectAllAssignees()}
+            onKeyDown={(e) => e.key === "Enter" && onSelectAllAssignees()}
+          >
+            <Checkbox
+              checked={!assigneeFilterActive}
+              onCheckedChange={() => onSelectAllAssignees()}
+              onClick={(e) => e.stopPropagation()}
+            />
             <span className="text-xs font-medium">전체 담당자</span>
-          </label>
+          </div>
           <div className="my-1 border-t border-border/50" />
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60">
+          <div
+            role="button"
+            tabIndex={0}
+            className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60"
+            onClick={() =>
+              onToggleAssignee(
+                WBS_UNASSIGNED_SPRINT_KEY,
+                !(assigneeFilterActive && (selectedAssignees?.has(WBS_UNASSIGNED_SPRINT_KEY) ?? false))
+              )
+            }
+          >
             <Checkbox
               checked={assigneeFilterActive && (selectedAssignees?.has(WBS_UNASSIGNED_SPRINT_KEY) ?? false)}
               onCheckedChange={(v) => onToggleAssignee(WBS_UNASSIGNED_SPRINT_KEY, v === true)}
+              onClick={(e) => e.stopPropagation()}
             />
             <span className="text-xs">{WBS_UNASSIGNED_SPRINT_LABEL}</span>
-          </label>
+          </div>
           <div className="my-1 border-t border-border/50" />
           <div className="max-h-52 space-y-0.5 overflow-y-auto">
-            {assigneeOptions.map((name) => (
-              <label key={name} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60">
-                <Checkbox
-                  checked={assigneeFilterActive && (selectedAssignees?.has(name) ?? false)}
-                  onCheckedChange={(v) => onToggleAssignee(name, v === true)}
-                />
-                <WbsAssigneeColorDot assignee={name} />
-                <span className="text-xs">{name}</span>
-              </label>
-            ))}
+            {assigneeOptions.map((name) => {
+              const checked = assigneeFilterActive && (selectedAssignees?.has(name) ?? false);
+              return (
+                <div
+                  key={name}
+                  role="button"
+                  tabIndex={0}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/60"
+                  onClick={() => onToggleAssignee(name, !checked)}
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(v) => onToggleAssignee(name, v === true)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <WbsAssigneeColorDot assignee={name} />
+                  <span className="text-xs">{name}</span>
+                </div>
+              );
+            })}
           </div>
         </PopoverContent>
       </Popover>

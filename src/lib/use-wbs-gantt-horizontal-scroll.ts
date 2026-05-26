@@ -6,7 +6,9 @@ import { useEffect, type RefObject } from "react";
  */
 export function useWbsGanttHorizontalScroll(
   rootRef: RefObject<HTMLDivElement | null>,
-  enabled: boolean
+  enabled: boolean,
+  /** Gantt remount 시 DOM·리스너 재바인딩 */
+  remountKey?: string
 ): void {
   useEffect(() => {
     const root = rootRef.current;
@@ -60,5 +62,5 @@ export function useWbsGanttHorizontalScroll(
       timeline.removeEventListener("scroll", syncFromTimeline);
       ro?.disconnect();
     };
-  }, [rootRef, enabled]);
+  }, [rootRef, enabled, remountKey]);
 }

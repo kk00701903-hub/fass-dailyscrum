@@ -67,6 +67,9 @@ export async function resolveScrumFormTaskFields(
 ): Promise<ScrumFormTaskFields> {
   const local = readLocalTaskFields(date, memberId, sprintId);
   if (local) {
+    if (selectedTasks.length === 0) {
+      return { yesterdayByTask: local.yesterdayByTask, todayByTask: local.todayByTask };
+    }
     return {
       yesterdayByTask: pruneTaskTextMap(local.yesterdayByTask, selectedTasks),
       todayByTask: pruneTaskTextMap(local.todayByTask, selectedTasks),
