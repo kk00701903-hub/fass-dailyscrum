@@ -66,8 +66,10 @@ export function TeamCompositionSettings() {
 
       <div className="space-y-2">
         {TEAM_MEMBERS.map((m) => {
-          const scrumOn = prefs.scrumHistory[m.id] === true;
-          const analyticsOn = prefs.analytics[m.id] === true;
+          const scrumValue = prefs.scrumHistory[m.id];
+          const analyticsValue = prefs.analytics[m.id];
+          const scrumOn = m.id === "seo" ? scrumValue === true : scrumValue !== false;
+          const analyticsOn = m.id === "seo" ? analyticsValue === true : analyticsValue !== false;
 
           return (
             <div

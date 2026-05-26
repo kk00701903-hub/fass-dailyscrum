@@ -114,10 +114,12 @@ export async function hydrateTeamMemberPrefsFromSupabase(): Promise<void> {
 async function persistMemberToSupabase(memberId: string, prefs: TeamMemberPrefs): Promise<void> {
   if (!isSupabaseConfigured()) return;
   try {
+    const scrumValue = prefs.scrumHistory[memberId];
+    const analyticsValue = prefs.analytics[memberId];
     await upsertTeamMemberDisplayToDb(
       memberId,
-      prefs.scrumHistory[memberId] === true,
-      prefs.analytics[memberId] === true
+      memberId === "seo" ? scrumValue === true : scrumValue !== false,
+      memberId === "seo" ? analyticsValue === true : analyticsValue !== false
     );
   } catch {
     /* localStorage·메모리는 유지 */
@@ -142,7 +144,11 @@ function invalidateMemberListCaches(): void {
 }
 
 function memberListKey(prefs: TeamMemberPrefs, field: "scrumHistory" | "analytics"): string {
-  return TEAM_MEMBERS.map((m) => (prefs[field][m.id] === true ? "1" : "0")).join("");
+  return TEAM_MEMBERS.map((m) => {
+    const value = prefs[field][m.id];
+    if (m.id === "seo") return value === true ? "1" : "0";
+    return value !== false ? "1" : "0";
+  }).join("");
 }
 
 export function getTeamMemberPrefs(): TeamMemberPrefs {
@@ -185,7 +191,11 @@ export function getMembersForScrumHistory(): TeamMember[] {
   const key = memberListKey(prefs, "scrumHistory");
   if (scrumMembersCache && scrumMembersCacheKey === key) return scrumMembersCache;
   scrumMembersCacheKey = key;
-  scrumMembersCache = TEAM_MEMBERS.filter((m) => prefs.scrumHistory[m.id] === true);
+  scrumMembersCache = TEAM_MEMBERS.filter((m) => {
+    const value = prefs.scrumHistory[m.id];
+    if (m.id === "seo") return value === true;
+    return value !== false;
+  });
   return scrumMembersCache;
 }
 
@@ -194,6 +204,10 @@ export function getMembersForAnalytics(): TeamMember[] {
   const key = memberListKey(prefs, "analytics");
   if (analyticsMembersCache && analyticsMembersCacheKey === key) return analyticsMembersCache;
   analyticsMembersCacheKey = key;
-  analyticsMembersCache = TEAM_MEMBERS.filter((m) => prefs.analytics[m.id] === true);
+  analyticsMembersCache = TEAM_MEMBERS.filter((m) => {
+    const value = prefs.analytics[m.id];
+    if (m.id === "seo") return value === true;
+    return value !== false;
+  });
   return analyticsMembersCache;
 }
