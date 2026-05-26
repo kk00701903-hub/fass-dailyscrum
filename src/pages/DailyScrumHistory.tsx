@@ -135,7 +135,7 @@ export default function DailyScrumHistory() {
   const location = useLocation();
   const dday = defaultDday();
   const [dateFilter, setDateFilter] = useState(() => todayIso());
-  const [memberFilter, setMemberFilter] = useState<string>(ALL_MEMBERS);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set([ALL_MEMBERS]));
   const [reports, setReports] = useState<DailyReportRow[]>([]);
   const [scrumEntries, setScrumEntries] = useState<ScrumEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -217,30 +217,38 @@ export default function DailyScrumHistory() {
     getMembersForScrumHistory
   );
 
+  const displayMembers = useMemo(() => {
+    if (selectedMemberIds.has(ALL_MEMBERS)) {
+      return scrumMembers;
+    }
+    return scrumMembers.filter((m) => selectedMemberIds.has(m.id));
+  }, [selectedMemberIds, scrumMembers]);
+
   const tableData = useMemo(
     () =>
       buildTeamDailyLogRows(
         dateFilter,
         reports,
         scrumEntries,
-        memberFilter,
-        ALL_MEMBERS,
-        scrumMembers
+        displayMembers
       ),
-    [dateFilter, reports, scrumEntries, memberFilter, scrumMembers, entriesRevision]
+    [dateFilter, reports, scrumEntries, displayMembers, entriesRevision]
   );
 
   useEffect(() => {
-    if (memberFilter === ALL_MEMBERS) return;
-    if (!scrumMembers.some((m) => m.id === memberFilter)) {
-      setMemberFilter(ALL_MEMBERS);
+    if (selectedMemberIds.has(ALL_MEMBERS)) return;
+    const validIds = new Set([...selectedMemberIds].filter(id => scrumMembers.some(m => m.id === id)));
+    if (validIds.size === 0) {
+      setSelectedMemberIds(new Set([ALL_MEMBERS]));
+    } else if (validIds.size !== selectedMemberIds.size) {
+      setSelectedMemberIds(validIds);
     }
-  }, [memberFilter, scrumMembers]);
+  }, [selectedMemberIds, scrumMembers]);
 
   const dateIndex = availableDates.indexOf(dateFilter);
   const isDday = dateFilter === dday;
   const filledCount = tableData.filter((r) => r.hasReport).length;
-  const memberCount = memberFilter === ALL_MEMBERS ? scrumMembers.length : 1;
+  const memberCount = displayMembers.length;
 
   const goPrevDay = () => {
     if (dateIndex < availableDates.length - 1) setDateFilter(availableDates[dateIndex + 1]!);
@@ -250,8 +258,16 @@ export default function DailyScrumHistory() {
   };
 
   const today = todayIso();
-  const tableTitle =
-    memberFilter === ALL_MEMBERS ? "팀 전체 일지" : `${memberName(memberFilter)} 일지`;
+  const tableTitle = useMemo(() => {
+    if (selectedMemberIds.has(ALL_MEMBERS)) {
+      return "팀 전체 일지";
+    }
+    if (displayMembers.length === 1) {
+      return `${displayMembers[0]!.name} 일지`;
+    }
+    return `선택 멤버 일지 (${displayMembers.length}명)`;
+  }, [selectedMemberIds, displayMembers]);
+
   const handleDownloadExcel = () => {
     downloadDailyScrumExcel({
       date: dateFilter,
@@ -351,15 +367,35 @@ export default function DailyScrumHistory() {
           <div className="flex min-w-0 max-w-full items-center lg:max-w-[min(100%,32rem)] lg:justify-end">
             <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto pb-0.5 pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <MemberFilterChip
-                active={memberFilter === ALL_MEMBERS}
-                onClick={() => setMemberFilter(ALL_MEMBERS)}
+                active={selectedMemberIds.has(ALL_MEMBERS)}
+                onClick={() => {
+                  if (selectedMemberIds.has(ALL_MEMBERS)) {
+                    setSelectedMemberIds(new Set());
+                  } else {
+                    setSelectedMemberIds(new Set([ALL_MEMBERS]));
+                  }
+                }}
                 label="전체"
               />
               {scrumMembers.map((m) => (
                 <MemberFilterChip
                   key={m.id}
-                  active={memberFilter === m.id}
-                  onClick={() => setMemberFilter(m.id)}
+                  active={selectedMemberIds.has(m.id)}
+                  onClick={() => {
+                    const newSet = new Set(selectedMemberIds);
+                    if (selectedMemberIds.has(ALL_MEMBERS)) {
+                      newSet.clear();
+                      newSet.add(m.id);
+                    } else if (newSet.has(m.id)) {
+                      newSet.delete(m.id);
+                      if (newSet.size === 0) {
+                        newSet.add(ALL_MEMBERS);
+                      }
+                    } else {
+                      newSet.add(m.id);
+                    }
+                    setSelectedMemberIds(newSet);
+                  }}
                   label={m.name}
                   avatar={m.avatar}
                   color={m.color}

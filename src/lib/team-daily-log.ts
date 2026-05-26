@@ -99,19 +99,12 @@ export function buildTeamDailyLogRows(
   reportDate: string,
   reports: DailyReportRow[],
   scrumEntries: ScrumEntry[],
-  memberFilter: string,
-  allMembersKey = "all",
   members: TeamMember[]
 ): TeamDailyReportRow[] {
   const mergedEntries = mergeScrumEntriesForDate(reportDate, scrumEntries);
   const jiraTasks = getActiveJiraTasks();
 
-  const pool =
-    memberFilter === allMembersKey
-      ? members
-      : members.filter((m) => m.id === memberFilter);
-
-  return pool.map((member) => {
+  return members.map((member) => {
     const report = reports.find((r) => r.member_id === member.id) ?? null;
     const entries = memberEntries(mergedEntries, member.id);
     const primaryEntry = pickPrimaryScrumEntry(entries);
