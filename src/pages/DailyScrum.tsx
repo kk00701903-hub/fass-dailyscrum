@@ -586,11 +586,16 @@ export default function DailyScrum() {
 
   const pickerTasks: ScrumTaskPickerItem[] = useMemo(() => {
     const sprintNameById = new Map(panelSprints.map((s) => [s.id, s.name]));
-    return visibleTasks.map((task) => ({
+    const visibleKeys = new Set(visibleTasks.map((t) => t.key));
+    // 현재 상태 필터에서 숨겨진 선택 이슈도 포함 — 사용자가 선택 해제할 수 있도록
+    const selectedButHidden = assignedTasks.filter(
+      (t) => mergedSelectedTasks.includes(t.key) && !visibleKeys.has(t.key)
+    );
+    return [...visibleTasks, ...selectedButHidden].map((task) => ({
       task,
       sprintName: sprintNameById.get(task.sprintId) ?? resolveSprintName(task.sprintId),
     }));
-  }, [visibleTasks, panelSprints]);
+  }, [visibleTasks, panelSprints, assignedTasks, mergedSelectedTasks]);
 
   const tasksByKey = useMemo(
     () => new Map(assignedTasks.map((t) => [t.key, t])),
@@ -1253,7 +1258,7 @@ export default function DailyScrum() {
                 <p className="text-xs text-muted-foreground">
                   {assignedTasks.length === 0
                     ? "JIRA 동기화·배정을 확인하세요"
-                    : `${mergedSelectedTasks.length}건 선택 · ${visibleTasks.length}건 표시`}
+                    : `${mergedSelectedTasks.length}건 선택 · ${pickerTasks.length}건 표시`}
                 </p>
               </div>
               {mergedSelectedTasks.length > 0 ? (
