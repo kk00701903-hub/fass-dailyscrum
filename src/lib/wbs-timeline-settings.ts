@@ -16,6 +16,42 @@ function dispatchChange() {
   window.dispatchEvent(new Event(WBS_TIMELINE_SETTINGS_CHANGED));
 }
 
+/** localStorage가 사용 가능한지 (Node.js 테스트 환경 등에서 안전하게 처리) */
+function hasLocalStorage(): boolean {
+  try {
+    return typeof localStorage !== "undefined";
+  } catch {
+    return false;
+  }
+}
+
+function lsGet(key: string): string | null {
+  if (!hasLocalStorage()) return null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function lsSet(key: string, value: string): void {
+  if (!hasLocalStorage()) return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+function lsRemove(key: string): void {
+  if (!hasLocalStorage()) return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
 /** yyyy-MM-dd 문자열 → Date (로컬 정오) */
 function parseIso(iso: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
@@ -37,7 +73,7 @@ export const WBS_DEFAULT_END_MONTH = 12; // 1-indexed
 // ── 읽기 ──────────────────────────────────────────────────────────────────────
 
 export function getWbsOriginDate(): Date {
-  const stored = localStorage.getItem(KEY_ORIGIN);
+  const stored = lsGet(KEY_ORIGIN);
   if (stored) {
     const d = parseIso(stored);
     if (d) return d;
@@ -46,13 +82,13 @@ export function getWbsOriginDate(): Date {
 }
 
 export function getWbsEndYear(): number {
-  const v = localStorage.getItem(KEY_END_YEAR);
+  const v = lsGet(KEY_END_YEAR);
   const n = v ? parseInt(v, 10) : NaN;
   return isNaN(n) ? WBS_DEFAULT_END_YEAR : n;
 }
 
 export function getWbsEndMonth(): number {
-  const v = localStorage.getItem(KEY_END_MONTH);
+  const v = lsGet(KEY_END_MONTH);
   const n = v ? parseInt(v, 10) : NaN;
   return isNaN(n) ? WBS_DEFAULT_END_MONTH : Math.max(1, Math.min(12, n));
 }
@@ -60,24 +96,24 @@ export function getWbsEndMonth(): number {
 // ── 쓰기 ──────────────────────────────────────────────────────────────────────
 
 export function setWbsOriginDate(date: Date): void {
-  localStorage.setItem(KEY_ORIGIN, toIsoDate(date));
+  lsSet(KEY_ORIGIN, toIsoDate(date));
   dispatchChange();
 }
 
 export function setWbsEndYear(year: number): void {
-  localStorage.setItem(KEY_END_YEAR, String(year));
+  lsSet(KEY_END_YEAR, String(year));
   dispatchChange();
 }
 
 export function setWbsEndMonth(month: number): void {
-  localStorage.setItem(KEY_END_MONTH, String(Math.max(1, Math.min(12, month))));
+  lsSet(KEY_END_MONTH, String(Math.max(1, Math.min(12, month))));
   dispatchChange();
 }
 
 export function resetWbsTimelineSettings(): void {
-  localStorage.removeItem(KEY_ORIGIN);
-  localStorage.removeItem(KEY_END_YEAR);
-  localStorage.removeItem(KEY_END_MONTH);
+  lsRemove(KEY_ORIGIN);
+  lsRemove(KEY_END_YEAR);
+  lsRemove(KEY_END_MONTH);
   dispatchChange();
 }
 
