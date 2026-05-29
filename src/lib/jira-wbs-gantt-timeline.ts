@@ -6,7 +6,7 @@ import {
   type WbsProjectMilestone,
 } from "@/lib/jira-wbs";
 import {
-  WBS_TIMELINE_MONTH_START,
+  getWbsTimelineMonthStart,
   wbsGanttTimelineEndDate,
   wbsTimelineWeekStartMonday,
 } from "@/lib/wbs-project-week";
@@ -39,7 +39,7 @@ export function computeWbsGanttPreSteps(tasks: Task[], viewMode: ViewMode): numb
       if (t.start < earliest) earliest = t.start;
     }
     const earliestMonth = startOfDate(earliest, "month");
-    const targetMonth = startOfDate(WBS_TIMELINE_MONTH_START, "month");
+    const targetMonth = startOfDate(getWbsTimelineMonthStart(), "month");
     const monthDiff =
       (earliestMonth.getFullYear() - targetMonth.getFullYear()) * 12 +
       (earliestMonth.getMonth() - targetMonth.getMonth());
@@ -176,7 +176,7 @@ function ganttLibraryDateRange(
 
   if (dataTasks.length === 0) {
     if (viewMode === ViewMode.Month) {
-      return [startOfDate(WBS_TIMELINE_MONTH_START, "month"), minEnd];
+      return [startOfDate(getWbsTimelineMonthStart(), "month"), minEnd];
     }
     return [wbsTimelineWeekStartMonday(), minEnd];
   }
@@ -194,8 +194,8 @@ function ganttLibraryDateRange(
         addToDate(startOfDate(newStartDate, "month"), -preStepsCount, "month"),
         "month"
       );
-      if (newStartDate.getTime() < WBS_TIMELINE_MONTH_START.getTime()) {
-        newStartDate = startOfDate(WBS_TIMELINE_MONTH_START, "month");
+      if (newStartDate.getTime() < getWbsTimelineMonthStart().getTime()) {
+        newStartDate = startOfDate(getWbsTimelineMonthStart(), "month");
       }
       newEndDate = startOfDate(addToDate(newEndDate, 1, "year"), "year");
       break;

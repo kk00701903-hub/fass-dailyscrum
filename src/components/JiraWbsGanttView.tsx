@@ -44,6 +44,10 @@ import {
   WBS_GANTT_ROW_HEIGHT,
   WBS_GANTT_TIMELINE_WIDTH_RATIO,
 } from "@/lib/jira-wbs-gantt-timeline";
+import {
+  getWbsTimelineSettings,
+  WBS_TIMELINE_SETTINGS_CHANGED,
+} from "@/lib/wbs-timeline-settings";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { TEAM_MEMBERS } from "@/lib/index";
 import { sprintStatusBadge, ui } from "@/lib/design-system";
@@ -302,6 +306,21 @@ export function JiraWbsGanttView() {
   const configured = isSupabaseConfigured();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // WBS 타임라인 설정 변경 감지 — 변경 시 key를 바꿔 Gantt 재마운트
+  const [timelineSettingsKey, setTimelineSettingsKey] = useState(
+    () => {
+      const s = getWbsTimelineSettings();
+      return `${s.originDate.getTime()}_${s.endYear}_${s.endMonth}`;
+    }
+  );
+  useEffect(() => {
+    const handler = () => {
+      const s = getWbsTimelineSettings();
+      setTimelineSettingsKey(`${s.originDate.getTime()}_${s.endYear}_${s.endMonth}`);
+    };
+    window.addEventListener(WBS_TIMELINE_SETTINGS_CHANGED, handler);
+    return () => window.removeEventListener(WBS_TIMELINE_SETTINGS_CHANGED, handler);
+  }, []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedAssignees, setSelectedAssignees] = useState<Set<string> | null>(null);
   const [selectedSprintStatuses, setSelectedSprintStatuses] = useState<Set<WbsSprintStatusKind>>(
@@ -467,8 +486,8 @@ export function JiraWbsGanttView() {
         sprintStatuses: selectedSprintStatuses,
         assigneeFilterActive,
         selectedAssignees,
-      }),
-    [viewMode, selectedSprintStatuses, assigneeFilterActive, selectedAssignees]
+      }) + `|tl:${timelineSettingsKey}`,
+    [viewMode, selectedSprintStatuses, assigneeFilterActive, selectedAssignees, timelineSettingsKey]
   );
 
   const flatRows = useMemo(

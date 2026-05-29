@@ -14,6 +14,8 @@ import {
   Moon,
   Monitor,
   Trash2,
+  CalendarRange,
+  RotateCcw,
 } from "lucide-react";
 import { Card, SectionHeader } from "@/components/Stats";
 import { JiraSyncDashboard } from "@/components/JiraSyncDashboard";
@@ -65,6 +67,18 @@ import {
   hydrateScrumHistoryFromSupabase,
 } from "@/lib/scrum-storage";
 import { useJiraSyncStore } from "@/store/jiraSyncStore";
+import {
+  getWbsTimelineSettings,
+  setWbsOriginDate,
+  setWbsEndYear,
+  setWbsEndMonth,
+  resetWbsTimelineSettings,
+  toIsoDate,
+  WBS_DEFAULT_ORIGIN_DATE,
+  WBS_DEFAULT_END_YEAR,
+  WBS_DEFAULT_END_MONTH,
+  WBS_TIMELINE_SETTINGS_CHANGED,
+} from "@/lib/wbs-timeline-settings";
 
 type SupabaseProbe = "idle" | "checking" | "ok" | "error";
 
@@ -93,6 +107,38 @@ export default function Settings() {
   const [supabaseProbeDetail, setSupabaseProbeDetail] = useState("");
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // WBS 타임라인 기간 설정
+  const [wbsOriginDateStr, setWbsOriginDateStr] = useState(() =>
+    toIsoDate(getWbsTimelineSettings().originDate)
+  );
+  const [wbsEndYear, setWbsEndYearState] = useState(() => getWbsTimelineSettings().endYear);
+  const [wbsEndMonth, setWbsEndMonthState] = useState(() => getWbsTimelineSettings().endMonth);
+  const [wbsSaved, setWbsSaved] = useState(false);
+
+  useEffect(() => {
+    const handler = () => {
+      const s = getWbsTimelineSettings();
+      setWbsOriginDateStr(toIsoDate(s.originDate));
+      setWbsEndYearState(s.endYear);
+      setWbsEndMonthState(s.endMonth);
+    };
+    window.addEventListener(WBS_TIMELINE_SETTINGS_CHANGED, handler);
+    return () => window.removeEventListener(WBS_TIMELINE_SETTINGS_CHANGED, handler);
+  }, []);
+
+  const handleWbsSave = () => {
+    const parsed = new Date(wbsOriginDateStr + "T12:00:00");
+    if (!isNaN(parsed.getTime())) setWbsOriginDate(parsed);
+    setWbsEndYear(wbsEndYear);
+    setWbsEndMonth(wbsEndMonth);
+    setWbsSaved(true);
+    setTimeout(() => setWbsSaved(false), 2500);
+  };
+
+  const handleWbsReset = () => {
+    resetWbsTimelineSettings();
+  };
 
   const supabaseConfigured = isSupabaseConfigured();
   const supabaseUrl = getSupabaseUrlFromEnv();
@@ -236,6 +282,71 @@ export default function Settings() {
           </div>
         </div>
         <JiraSyncDashboard embedded />
+      </Card>
+
+      {/* WBS 타임라인 기간 설정 */}
+      <Card>
+        <CardContent className="pt-4">
+          <div className="mb-3 flex items-center gap-2">
+            <div className={cn(ui.iconBoxSm, ui.iconCyan)}>
+              <CalendarRange className="h-4 w-4" />
+            </div>
+            <SectionHeader dense title="JIRA WBS · 일정 표시 기간" subtitle="Gantt 타임라인의 시작일과 종료 연월을 설정합니다" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <label className={ui.label}>프로젝트 기준일 (1W 시작일)</label>
+              <input
+                type="date"
+                value={wbsOriginDateStr}
+                onChange={(e) => setWbsOriginDateStr(e.target.value)}
+                className={cn(ui.input, "mt-2")}
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                기본값: {toIsoDate(WBS_DEFAULT_ORIGIN_DATE)} · 이 날짜가 1W 기준이 됩니다
+              </p>
+            </div>
+            <div>
+              <label className={ui.label}>종료 연도</label>
+              <input
+                type="number"
+                min={2025}
+                max={2035}
+                value={wbsEndYear}
+                onChange={(e) => setWbsEndYearState(Number(e.target.value))}
+                className={cn(ui.input, "mt-2")}
+              />
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                기본값: {WBS_DEFAULT_END_YEAR}
+              </p>
+            </div>
+            <div>
+              <label className={ui.label}>종료 월</label>
+              <select
+                value={wbsEndMonth}
+                onChange={(e) => setWbsEndMonthState(Number(e.target.value))}
+                className={cn(ui.input, "mt-2")}
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>{m}월</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                기본값: {WBS_DEFAULT_END_MONTH}월
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Button type="button" size="sm" onClick={handleWbsSave}>
+              {wbsSaved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+              {wbsSaved ? "저장 완료" : "기간 저장"}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={handleWbsReset}>
+              <RotateCcw className="h-4 w-4" />
+              기본값으로 초기화
+            </Button>
+          </div>
+        </CardContent>
       </Card>
 
       <Card>
