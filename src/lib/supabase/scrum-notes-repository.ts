@@ -90,6 +90,19 @@ export async function fetchScrumNotesBySprint(
   return (data as DbRow[] ?? []).map(rowToNote);
 }
 
+/** 스프린트 ID 없는 메모 포함 전체 조회 (추가논의과제 패널용) */
+export async function fetchAllScrumNotes(): Promise<ScrumNote[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await getSupabase()
+    .from("scrum_notes")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data as DbRow[] ?? []).map(rowToNote);
+}
+
 export async function fetchRecentScrumNotes(days = 14): Promise<ScrumNote[]> {
   if (!isSupabaseConfigured()) return [];
 

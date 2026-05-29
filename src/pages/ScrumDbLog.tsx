@@ -1,10 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { DatabaseZap, RefreshCw, AlertCircle, Inbox, ChevronDown, ChevronUp } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DatabaseZap, RefreshCw, AlertCircle, Inbox, ChevronDown, ChevronUp,
+  ClipboardList, Plus, Trash2, Pencil, Check, X, ChevronRight,
+} from "lucide-react";
 import { fetchScrumEntriesFromDb } from "@/lib/supabase/jira-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import type { ScrumEntry } from "@/lib/index";
-import { getTeamMember } from "@/lib/index";
+import { getTeamMember, TEAM_MEMBERS } from "@/lib/index";
 import { cn } from "@/lib/utils";
+import {
+  fetchAllScrumNotes,
+  createScrumNote,
+  updateScrumNote,
+  deleteScrumNote,
+  type ScrumNote,
+} from "@/lib/supabase/scrum-notes-repository";
+import { fetchJiraSprintsFromDb, type JiraSprintRow } from "@/lib/jira-sprints-dashboard";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -66,6 +77,331 @@ function TaskBadges({ tasks }: { tasks: string[] }) {
           {k}
         </span>
       ))}
+    </div>
+  );
+}
+
+// ─── 추가논의과제 패널 ──────────────────────────────────────────────────────────
+
+const NO_SPRINT_KEY = "__no_sprint__";
+
+function AgendaPanel() {
+  const [sprints, setSprints] = useState<JiraSprintRow[]>([]);
+  const [notes, setNotes] = useState<ScrumNote[]>([]);
+  const [selectedSprintId, setSelectedSprintId] = useState<string>(NO_SPRINT_KEY);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 새 메모 입력
+  const [newText, setNewText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 편집 상태
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  // 패널 접기
+  const [collapsed, setCollapsed] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [sprintList, noteList] = await Promise.all([
+        fetchJiraSprintsFromDb(),
+        fetchAllScrumNotes(),
+      ]);
+      setSprints(sprintList);
+      setNotes(noteList);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  // 선택된 스프린트의 메모만 표시
+  const filteredNotes = useMemo(() => {
+    return notes
+      .filter((n) =>
+        selectedSprintId === NO_SPRINT_KEY
+          ? !n.sprintId
+          : n.sprintId === selectedSprintId
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [notes, selectedSprintId]);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const handleAdd = async () => {
+    const text = newText.trim();
+    if (!text) return;
+    setAdding(true);
+    try {
+      const note = await createScrumNote({
+        sprintId: selectedSprintId === NO_SPRINT_KEY ? null : selectedSprintId,
+        noteDate: today,
+        title: text.split("\n")[0]?.slice(0, 80) ?? text,
+        content: text,
+        category: "general",
+        authorId: TEAM_MEMBERS[0]?.id ?? "unknown",
+      });
+      setNotes((prev) => [...prev, note]);
+      setNewText("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "저장 실패");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleEditSave = async (id: string) => {
+    const text = editText.trim();
+    if (!text) return;
+    try {
+      const updated = await updateScrumNote(id, {
+        title: text.split("\n")[0]?.slice(0, 80) ?? text,
+        content: text,
+      });
+      setNotes((prev) => prev.map((n) => (n.id === id ? updated : n)));
+      setEditingId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "수정 실패");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteScrumNote(id);
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "삭제 실패");
+    }
+  };
+
+  const handleToggleResolved = async (note: ScrumNote) => {
+    try {
+      const updated = await updateScrumNote(note.id, { isResolved: !note.isResolved });
+      setNotes((prev) => prev.map((n) => (n.id === note.id ? updated : n)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "수정 실패");
+    }
+  };
+
+  const startEdit = (note: ScrumNote) => {
+    setEditingId(note.id);
+    setEditText(note.content);
+  };
+
+  return (
+    <div className="border-t border-border mt-2">
+      {/* 헤더 */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex w-full items-center gap-2 px-6 py-3 text-sm font-semibold hover:bg-muted/30 transition-colors"
+      >
+        <ClipboardList className="w-4 h-4 text-primary shrink-0" />
+        <span className="flex-1 text-left">추가논의과제</span>
+        {!collapsed && (
+          <span className="text-xs font-normal text-muted-foreground mr-2">
+            {filteredNotes.length}건
+          </span>
+        )}
+        <ChevronRight
+          className={cn(
+            "w-4 h-4 text-muted-foreground transition-transform",
+            !collapsed && "rotate-90"
+          )}
+        />
+      </button>
+
+      {!collapsed && (
+        <div className="px-6 pb-6 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* 스프린트 탭 */}
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSelectedSprintId(NO_SPRINT_KEY)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                selectedSprintId === NO_SPRINT_KEY
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-card/50 text-muted-foreground hover:bg-muted/30"
+              )}
+            >
+              스프린트 미지정
+            </button>
+            {sprints.map((sp) => {
+              const id = sp.id ?? sp.jira_sprint_id ?? sp.sprint_name;
+              if (!id) return null;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setSelectedSprintId(id)}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                    selectedSprintId === id
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-border bg-card/50 text-muted-foreground hover:bg-muted/30"
+                  )}
+                >
+                  {sp.sprint_name || id}
+                </button>
+              );
+            })}
+            {loading && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <RefreshCw className="w-3 h-3 animate-spin" /> 로드 중…
+              </span>
+            )}
+          </div>
+
+          {/* 메모 목록 */}
+          <div className="space-y-2">
+            {filteredNotes.length === 0 && !loading && (
+              <p className="text-xs text-muted-foreground py-2">
+                이 스프린트에 등록된 논의과제가 없습니다.
+              </p>
+            )}
+            {filteredNotes.map((note, idx) => (
+              <div
+                key={note.id}
+                className={cn(
+                  "group flex gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors",
+                  note.isResolved
+                    ? "border-border bg-muted/20 opacity-60"
+                    : "border-border bg-card hover:bg-muted/20"
+                )}
+              >
+                {/* 완료 체크 */}
+                <button
+                  type="button"
+                  title={note.isResolved ? "완료 취소" : "완료로 표시"}
+                  onClick={() => void handleToggleResolved(note)}
+                  className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors",
+                    note.isResolved
+                      ? "border-emerald-400 bg-emerald-500 text-white"
+                      : "border-border text-transparent hover:border-emerald-400 hover:text-emerald-400"
+                  )}
+                >
+                  <Check className="w-2.5 h-2.5" />
+                </button>
+
+                {/* 내용 */}
+                <div className="flex-1 min-w-0">
+                  {editingId === note.id ? (
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        rows={3}
+                        className="w-full rounded border border-border bg-background px-2 py-1 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-primary"
+                        autoFocus
+                      />
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void handleEditSave(note.id)}
+                          className="flex items-center gap-1 rounded border border-emerald-400/50 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600 hover:bg-emerald-500/20"
+                        >
+                          <Check className="w-3 h-3" />저장
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          className="flex items-center gap-1 rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted/30"
+                        >
+                          <X className="w-3 h-3" />취소
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className={cn(
+                      "whitespace-pre-wrap break-words text-xs leading-relaxed",
+                      note.isResolved && "line-through text-muted-foreground"
+                    )}>
+                      <span className="mr-2 font-medium text-muted-foreground opacity-60 select-none">
+                        {String(idx + 1).padStart(2, "0")}
+                      </span>
+                      {note.content}
+                    </p>
+                  )}
+                </div>
+
+                {/* 액션 버튼 (hover 시 표시) */}
+                {editingId !== note.id && (
+                  <div className="flex shrink-0 items-start gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      title="수정"
+                      onClick={() => startEdit(note)}
+                      className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      title="삭제"
+                      onClick={() => void handleDelete(note.id)}
+                      className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* 새 항목 입력 */}
+          <div className="space-y-1.5">
+            <textarea
+              ref={textareaRef}
+              value={newText}
+              onChange={(e) => setNewText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  void handleAdd();
+                }
+              }}
+              placeholder="논의과제 또는 메모를 입력하세요… (Ctrl+Enter로 추가)"
+              rows={2}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60"
+            />
+            <button
+              type="button"
+              onClick={() => void handleAdd()}
+              disabled={adding || !newText.trim()}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              )}
+            >
+              {adding ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Plus className="w-3.5 h-3.5" />
+              )}
+              항목 추가
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -167,7 +503,7 @@ export default function ScrumDbLog() {
         )}
 
         {filtered.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-lg border border-border" style={{ marginBottom: 0 }}>
             <table className="text-xs border-collapse" style={{ minWidth: "900px" }}>
               <thead>
                 <tr className="bg-muted/60 border-b border-border">
@@ -261,6 +597,9 @@ export default function ScrumDbLog() {
           </div>
         )}
       </div>
+
+      {/* 추가논의과제 패널 */}
+      <AgendaPanel />
     </div>
   );
 }
