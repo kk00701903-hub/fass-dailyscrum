@@ -6,37 +6,52 @@ import {
   isScrumFormSavable,
 } from "../src/lib/scrum-save-validation.ts";
 
-const filled = {
+// 1개 선택 — 정상 케이스
+const filledOne = {
+  yesterdayByTask: { "FWK-215": "어제 한 일" },
+  todayByTask: { "FWK-215": "오늘 할 일" },
+  selectedTasks: ["FWK-215"],
+};
+
+// 2개 선택 — 조회 전용 케이스
+const filledTwo = {
   yesterdayByTask: { "FWK-215": "어제 한 일", "FWK-217": "어제 B" },
   todayByTask: { "FWK-215": "오늘 할 일", "FWK-217": "오늘 B" },
   selectedTasks: ["FWK-215", "FWK-217"],
 };
 
 describe("scrum-save-validation", () => {
-  it("allows save when all selected tasks have yesterday and today", () => {
-    assert.equal(isScrumFormSavable(filled), true);
-    assert.equal(getScrumSaveValidationMessage(filled), null);
+  it("allows save when exactly one task selected with both fields filled", () => {
+    assert.equal(isScrumFormSavable(filledOne), true);
+    assert.equal(getScrumSaveValidationMessage(filledOne), null);
+  });
+
+  it("blocks save when 2+ tasks selected (조회 전용)", () => {
+    assert.equal(isScrumFormSavable(filledTwo), false);
+    const msg = getScrumSaveValidationMessage(filledTwo);
+    assert.ok(msg !== null, "should return error message");
+    assert.match(msg, /1개만 선택/);
   });
 
   it("blocks save when tasks not selected but text filled", () => {
-    const form = { ...filled, selectedTasks: [] };
+    const form = { ...filledOne, selectedTasks: [] };
     assert.equal(isScrumFormSavable(form), false);
-    assert.match(getScrumSaveValidationMessage(form), /담당 이슈 클릭/);
+    assert.match(getScrumSaveValidationMessage(form), /담당 이슈/);
   });
 
-  it("blocks save when one task missing yesterday", () => {
+  it("blocks save when selected task missing yesterday", () => {
     const form = {
-      ...filled,
-      yesterdayByTask: { "FWK-215": "ok", "FWK-217": "  " },
+      ...filledOne,
+      yesterdayByTask: { "FWK-215": "  " },
     };
     assert.equal(isScrumFormSavable(form), false);
     assert.match(getScrumSaveValidationMessage(form), /전일 성과/);
   });
 
-  it("blocks save when one task missing today", () => {
+  it("blocks save when selected task missing today", () => {
     const form = {
-      ...filled,
-      todayByTask: { "FWK-215": "ok", "FWK-217": "" },
+      ...filledOne,
+      todayByTask: { "FWK-215": "" },
     };
     assert.equal(isScrumFormSavable(form), false);
     assert.match(getScrumSaveValidationMessage(form), /오늘 계획/);
@@ -61,10 +76,17 @@ describe("canEditScrumTextFields", () => {
     );
   });
 
-  it("allows text when at least one issue selected", () => {
+  it("allows text when exactly one issue selected", () => {
     assert.equal(
       canEditScrumTextFields({ hasSelectableTasks: true, selectedTaskCount: 1 }),
       true
+    );
+  });
+
+  it("blocks text when 2+ issues selected (조회 전용)", () => {
+    assert.equal(
+      canEditScrumTextFields({ hasSelectableTasks: true, selectedTaskCount: 2 }),
+      false
     );
   });
 

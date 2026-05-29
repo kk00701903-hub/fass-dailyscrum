@@ -7,13 +7,16 @@ export interface ScrumSaveFormSlice {
   selectedTasks: string[];
 }
 
-/** 전일 성과·오늘 계획·병목 입력 가능 여부 (저장 시 requireTaskSelection 과 동일 조건) */
+/** 전일 성과·오늘 계획·병목 입력 가능 여부
+ *  - 선택 이슈가 정확히 1개일 때만 입력·저장 가능
+ *  - 2개 이상이면 조회 전용
+ */
 export function canEditScrumTextFields(options: {
   hasSelectableTasks: boolean;
   selectedTaskCount: number;
 }): boolean {
   if (!options.hasSelectableTasks) return true;
-  return options.selectedTaskCount > 0;
+  return options.selectedTaskCount === 1;
 }
 
 function mapsForValidation(form: ScrumSaveFormSlice): {
@@ -27,13 +30,16 @@ function mapsForValidation(form: ScrumSaveFormSlice): {
   };
 }
 
-/** 진행 중 담당 이슈가 1개 이상 있을 때: 선택된 각 태스크별 전일·오늘 필수 */
+/** 담당 이슈가 정확히 1개 선택된 경우에만 저장 가능.
+ *  2개 이상 선택 시 조회 전용으로 저장 불가. */
 export function isScrumFormSavable(
   form: ScrumSaveFormSlice,
   options?: { requireTaskSelection?: boolean }
 ): boolean {
   const requireTasks = options?.requireTaskSelection ?? true;
   if (requireTasks && form.selectedTasks.length === 0) return false;
+  // 2개 이상 선택 → 조회 전용
+  if (form.selectedTasks.length > 1) return false;
 
   const { yesterday, today } = mapsForValidation(form);
   if (form.selectedTasks.length === 0) {
@@ -57,8 +63,11 @@ export function getScrumSaveValidationMessage(
   const requireTasks = options?.requireTaskSelection ?? true;
   const missing: string[] = [];
 
+  if (form.selectedTasks.length > 1) {
+    return "담당 이슈를 1개만 선택하면 입력·저장할 수 있습니다. (2개 이상 선택 시 조회 전용)";
+  }
   if (requireTasks && form.selectedTasks.length === 0) {
-    missing.push("좌측 목록에서 담당 이슈 클릭(체크)으로 선택");
+    missing.push("좌측 목록에서 담당 이슈 1개 선택");
   }
 
   const { yesterday, today } = mapsForValidation(form);

@@ -55,7 +55,6 @@ import { fetchDailyReport } from "@/lib/daily-reports-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { useJiraSyncStore } from "@/store/jiraSyncStore";
 import { DAILY_SCRUM_MEMBERS, getTeamMember, ROUTES, type ScrumEntry } from "@/lib/index";
-import { toast } from "@/hooks/use-toast";
 import { useAuthStore } from "@/store/authStore";
 import { getActiveJiraSprints } from "@/lib/jira-data-registry";
 import { resolveSprintName } from "@/lib/jira-live-data";
@@ -887,12 +886,6 @@ export default function DailyScrum() {
       justSavedRef.current = true;
       setSaveError(null);
       setSaved((prev) => ({ ...prev, [activeMember]: true }));
-      const memberName = getTeamMember(activeMember).name;
-      toast({
-        title: "저장되었습니다",
-        description: `${memberName} · ${scrumDate} · ${sprintLabel}`,
-        duration: 5000,
-      });
       setTimeout(() => setSaved((prev) => ({ ...prev, [activeMember]: false })), 4000);
     }).catch((e) => {
       setSaveError(e instanceof Error ? e.message : String(e));
@@ -1296,10 +1289,13 @@ export default function DailyScrum() {
             type="button"
             onClick={handleSave}
             aria-live="polite"
+            disabled={mergedSelectedTasks.length > 1}
+            title={mergedSelectedTasks.length > 1 ? "담당 이슈를 1개만 선택하면 저장할 수 있습니다" : undefined}
             className={cn(
               ui.btnPrimary,
               "h-9 min-w-[5.5rem] gap-1.5 px-3.5 text-sm font-semibold transition-all",
-              saved[activeMember] && "ring-2 ring-emerald-300/80 ring-offset-2 ring-offset-background"
+              saved[activeMember] && "ring-2 ring-emerald-300/80 ring-offset-2 ring-offset-background",
+              mergedSelectedTasks.length > 1 && "opacity-40 cursor-not-allowed"
             )}
             style={saveButtonStyle()}
           >
@@ -1337,6 +1333,10 @@ export default function DailyScrum() {
                 <p className="text-xs text-muted-foreground">
                   {assignedTasks.length === 0
                     ? "JIRA 동기화·배정을 확인하세요"
+                    : mergedSelectedTasks.length > 1
+                    ? <span className="text-amber-600 dark:text-amber-400 font-medium">
+                        {mergedSelectedTasks.length}건 선택 — 1개만 선택 시 입력 가능
+                      </span>
                     : `${mergedSelectedTasks.length}건 선택 · ${pickerTasks.length}건 표시`}
                 </p>
               </div>
@@ -1370,11 +1370,13 @@ export default function DailyScrum() {
               icon="📋"
               title="전일 성과"
               hint={
-                mergedSelectedTasks.length > 0
-                  ? `선택 ${mergedSelectedTasks.length}건 · 이슈별 입력`
-                  : hasSelectableTasks
-                    ? "좌측 이슈를 먼저 선택하세요"
-                    : "좌측 이슈 클릭으로 선택"
+                mergedSelectedTasks.length > 1
+                  ? "1개만 선택하면 입력 가능 (현재 조회 전용)"
+                  : mergedSelectedTasks.length === 1
+                    ? `선택 ${mergedSelectedTasks.length}건 · 이슈별 입력`
+                    : hasSelectableTasks
+                      ? "좌측 이슈를 1개 선택하세요"
+                      : "좌측 이슈 클릭으로 선택"
               }
               taskKeys={orderedSelectedKeys}
               tasksByKey={tasksByKey}
@@ -1399,11 +1401,13 @@ export default function DailyScrum() {
               icon="🎯"
               title="오늘 계획"
               hint={
-                canEditScrumText
-                  ? `${sprintLabel} · 이슈별 입력`
-                  : hasSelectableTasks
-                    ? "좌측 이슈를 먼저 선택하세요"
-                    : sprintLabel
+                mergedSelectedTasks.length > 1
+                  ? "1개만 선택하면 입력 가능 (현재 조회 전용)"
+                  : canEditScrumText
+                    ? `${sprintLabel} · 이슈별 입력`
+                    : hasSelectableTasks
+                      ? "좌측 이슈를 1개 선택하세요"
+                      : sprintLabel
               }
               taskKeys={orderedSelectedKeys}
               tasksByKey={tasksByKey}
