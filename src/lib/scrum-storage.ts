@@ -280,17 +280,8 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
   const hasToday = today.trim().length > 0;
   const shouldSyncToSupabase = hasYesterday && hasToday;
 
-  if (!shouldSyncToSupabase) {
-    console.warn(
-      `[saveScrumEntry] Supabase 저장 건너뜀 - ${payload.date} ${payload.memberId}: ` +
-      `yesterday=${hasYesterday ? "있음" : "없음"}, today=${hasToday ? "있음" : "없음"}`
-    );
-  }
 
   if (isSupabaseConfigured() && shouldSyncToSupabase) {
-    // #region agent log
-    fetch('http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c89cc5'},body:JSON.stringify({sessionId:'c89cc5',location:'scrum-storage.ts:saveScrumEntry',message:'Supabase save start',data:{memberId:payload.memberId,date:payload.date,sprintId:payload.sprintId,taskCount:keys.length},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     try {
       await upsertDailyReport({
         memberId: payload.memberId,
@@ -316,9 +307,6 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
       }
     } catch (err) {
       console.error("[saveScrumEntry] Supabase save failed:", err);
-      // #region agent log
-      fetch('http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c89cc5'},body:JSON.stringify({sessionId:'c89cc5',location:'scrum-storage.ts:saveScrumEntry:catch',message:'Supabase save FAILED',data:{memberId:payload.memberId,date:payload.date,error:err instanceof Error?err.message:String(err)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       supabaseError = err;
     }
   }

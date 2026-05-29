@@ -194,9 +194,6 @@ export async function upsertScrumEntryToDb(entry: Omit<ScrumEntry, "id"> & { id?
     .select("id, entry_date, sprint_id, member_id, yesterday, today, blockers, selected_tasks")
     .single();
 
-  // #region agent log
-  fetch('http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c89cc5'},body:JSON.stringify({sessionId:'c89cc5',location:'jira-repository.ts:upsertScrumEntryToDb',message:'scrum_entries upsert result',data:{memberId:entry.memberId,hasError:!!error,errorMsg:error?.message??null},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (error) throw new Error(error.message);
   return rowToScrumEntry(data as ScrumEntryRow);
 }
