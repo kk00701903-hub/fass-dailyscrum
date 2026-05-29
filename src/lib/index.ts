@@ -20,6 +20,8 @@ export const ROUTES = {
   JIRA_DEPENDENCIES: "/jira/dependencies",
   DAILY_SCRUM: "/scrum",
   SCRUM_HISTORY: "/scrum/history",
+  SCRUM_DB_LOG: "/scrum/db-log",
+  SCRUM_NOTES: "/scrum/notes",
   ANALYTICS: "/analytics",
   SETTINGS: "/settings",
   LOGIN: "/login",
@@ -110,6 +112,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
   { id: "shim", name: "심지훈", avatar: "심", role: "Frontend", color: "#34d399" },
   { id: "oh", name: "오준열", avatar: "오", role: "Frontend", color: "#fb923c" },
   { id: "lee", name: "이지상", avatar: "이", role: "Frontend", color: "#f87171" },
+  { id: "han", name: "한성민", avatar: "한", role: "Backend", color: "#e879f9" },
 ];
 
 /** 데일리 스크럼 작성 대상에서 제외할 멤버 id */

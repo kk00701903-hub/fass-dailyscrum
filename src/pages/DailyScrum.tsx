@@ -131,7 +131,20 @@ function todayIso(): string {
 
 function buildFormFromHistory(dateStr: string, memberId: string, sprintId: string): ScrumForm {
   const e = findScrumEntry(dateStr, memberId, sprintId);
-  return e ? entryToForm(e) : { ...defaultForm };
+  if (!e) return { ...defaultForm };
+  const form = entryToForm(e);
+  // 담당 이슈가 2개 이상이고 실제 입력 텍스트가 없으면 선택된 태스크를 비워서
+  // DB restore effect의 liveKeys가 오염되지 않도록 한다
+  const assignedCount = getMemberActiveAssignedTasks(memberId).length;
+  if (assignedCount > 1) {
+    const hasText =
+      Object.values(form.yesterdayByTask).some((v) => v.trim()) ||
+      Object.values(form.todayByTask).some((v) => v.trim());
+    if (!hasText) {
+      return { ...form, selectedTasks: [] };
+    }
+  }
+  return form;
 }
 
 function buildAllForms(dateStr: string): Record<string, ScrumForm> {
@@ -355,6 +368,10 @@ export default function DailyScrum() {
   const [todoHintTaskKey, setTodoHintTaskKey] = useState<string | null>(null);
   /** 단일 이슈 자동 선택 — 사용자가 해제한 뒤 prefsTick 등으로 effect가 다시 돌 때 재선택 방지 */
   const skipAutoSelectKeyRef = useRef<string | null>(null);
+  /** 저장 직후 로드 effect가 재실행되어 폼을 덮어쓰는 것을 방지 */
+  const justSavedRef = useRef(false);
+  /** panelSprintIds 안정화 — 값이 동일하면 같은 참조 반환 */
+  const prevPanelSprintIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     skipAutoSelectKeyRef.current = null;
@@ -416,6 +433,8 @@ export default function DailyScrum() {
         if (memberHasAnyScrumEntryOnDate(history, m.id, scrumDate)) continue;
 
         const backlog = getMemberActiveAssignedTasks(m.id);
+        // 담당 이슈가 2개 이상이면 자동선택 건너뜀 — 사용자가 직접 선택하도록
+        if (backlog.length > 1) continue;
         const prevTasks = sanitizeSelectedTaskKeys(
           findPreviousMemberSelectedTasks(history, m.id, scrumDate),
           backlog
@@ -534,7 +553,13 @@ export default function DailyScrum() {
     const focus = getMemberSprintFocus(activeMember);
     if (focus) ids.add(focus);
     for (const s of inProgressSprints) ids.add(s.id);
-    return [...ids];
+    const next = [...ids].sort();
+    const prev = prevPanelSprintIdsRef.current;
+    if (next.length === prev.length && next.every((id, i) => id === prev[i])) {
+      return prev;
+    }
+    prevPanelSprintIdsRef.current = next;
+    return next;
   }, [assignedTasks, activeMember, inProgressSprints, prefsTick, lastJiraDataAt]);
 
   const panelSprints = useMemo(() => {
@@ -615,6 +640,7 @@ export default function DailyScrum() {
 
   useEffect(() => {
     if (!canonicalSprintId || !activeMember) return;
+    let cancelled = false;
     const entry = findScrumEntry(scrumDate, activeMember, canonicalSprintId);
     void resolveScrumFormTaskFields(
       scrumDate,
@@ -624,6 +650,12 @@ export default function DailyScrum() {
       entry?.yesterday ?? "",
       entry?.today ?? ""
     ).then((fields) => {
+      if (cancelled) return;
+      // 저장 직후 재실행된 effect는 현재 폼 상태를 유지 (덮어쓰기 방지)
+      if (justSavedRef.current) {
+        justSavedRef.current = false;
+        return;
+      }
       setForms((prev) => {
         const k = formKey(activeMember, canonicalSprintId);
         const cur = prev[k] ?? buildFormFromHistory(scrumDate, activeMember, canonicalSprintId);
@@ -633,18 +665,44 @@ export default function DailyScrum() {
             ...Object.keys(fields.todayByTask),
           ])
         );
-        const selectedKeys =
-          (entry?.selectedTasks.length ?? 0) > 0
-            ? entry!.selectedTasks
-            : dbKeys.length > 0
-              ? dbKeys
-              : cur.selectedTasks;
-        
+
+        // 담당 이슈 2개 이상인 멤버는, 저장된 entry에 실제 입력 텍스트가 없으면
+        // (캐리오버만 된 항목) selectedTasks 를 복원하지 않는다.
+        // liveKeys 경로도 포함해 모든 복원 경로를 차단한다.
+        const entryHasText =
+          (entry?.yesterday ?? "").trim().length > 0 ||
+          (entry?.today ?? "").trim().length > 0;
+        const canRestoreEntryTasks =
+          assignedTasks.length <= 1 || entryHasText;
+
+        // prev 기준 live 선택을 우선 사용 — async 완료 시 유저가 이미 태스크를 선택/해제했을 수
+        // 있으므로, stale 클로저인 entry.selectedTasks 보다 현재 폼 상태를 우선시한다.
+        // 단, canRestoreEntryTasks 가 false 이면 liveKeys 포함 모든 경로를 차단한다.
+        const liveKeys = canRestoreEntryTasks
+          ? collectMergedSelectedTasks(
+              prev,
+              activeMember,
+              panelSprintIds,
+              teamSprintId,
+              allowedTaskKeys
+            )
+          : [];
+        const selectedKeys = canRestoreEntryTasks
+          ? (liveKeys.length > 0
+              ? liveKeys
+              : (entry?.selectedTasks.length ?? 0) > 0
+                ? entry!.selectedTasks
+                : dbKeys.length > 0
+                  ? dbKeys
+                  : cur.selectedTasks)
+          : [];
+
         if (selectedKeys.length === 0) {
           return {
             ...prev,
             [k]: {
               ...cur,
+              selectedTasks: [],
               yesterdayByTask: fields.yesterdayByTask,
               todayByTask: fields.todayByTask,
             },
@@ -680,6 +738,7 @@ export default function DailyScrum() {
         };
       });
     });
+    return () => { cancelled = true; };
   }, [activeMember, scrumDate, canonicalSprintId, scrumHistoryRevision, panelSprintIds, teamSprintId, assignedTasks]);
 
   const taskPickerEmptyMessage =
@@ -700,9 +759,10 @@ export default function DailyScrum() {
       const canonical = resolveScrumEntrySprintId(nextKeys, assignedTasks, teamSprintId);
       const k = formKey(activeMember, canonical);
       const cur = prev[k] ?? buildFormFromHistory(scrumDate, activeMember, canonical);
+      const curSet = new Set(cur.selectedTasks);
       const same =
-        nextKeys.length === cur.selectedTasks.length &&
-        nextKeys.every((key, i) => cur.selectedTasks[i] === key);
+        nextKeys.length === curSet.size &&
+        nextKeys.every((key) => curSet.has(key));
       if (same) return prev;
       const sanitized = sanitizeSelectedTaskKeys(nextKeys, assignedTasks);
       return applyMemberTaskSelection(
@@ -824,6 +884,7 @@ export default function DailyScrum() {
       selectedTasks: form.selectedTasks,
       isCompleted: form.isCompleted,
     }).then(() => {
+      justSavedRef.current = true;
       setSaveError(null);
       setSaved((prev) => ({ ...prev, [activeMember]: true }));
       const memberName = getTeamMember(activeMember).name;
@@ -1036,6 +1097,10 @@ export default function DailyScrum() {
       return;
     }
 
+    let capturedForm: ScrumForm | null = null;
+    let capturedSprintId: string | null = null;
+    let shouldSkipAutoSelect = false;
+
     setForms((prev) => {
       const merged = new Set(
         sanitizeSelectedTaskKeys(
@@ -1060,7 +1125,7 @@ export default function DailyScrum() {
         visibleTasks.length === 1 &&
         visibleTasks[0]?.key === taskKey
       ) {
-        skipAutoSelectKeyRef.current = `${activeMember}::${scrumDate}::${taskKey}`;
+        shouldSkipAutoSelect = true;
       }
 
       const canonical = resolveScrumEntrySprintId(nextKeys, assignedTasks, teamSprintId);
@@ -1075,12 +1140,19 @@ export default function DailyScrum() {
       const persistSprintId =
         canonical || (assignedTasks.length > 0 ? teamSprintId : getMemberSprintFocus(activeMember));
       if (persistSprintId) {
-        const k = formKey(activeMember, persistSprintId);
-        const form = next[k] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
-        persistTaskSelection(form, persistSprintId);
+        capturedSprintId = persistSprintId;
+        capturedForm = next[formKey(activeMember, persistSprintId)] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
       }
       return next;
     });
+
+    if (shouldSkipAutoSelect) {
+      skipAutoSelectKeyRef.current = `${activeMember}::${scrumDate}::${taskKey}`;
+    }
+
+    if (capturedForm && capturedSprintId) {
+      persistTaskSelection(capturedForm, capturedSprintId);
+    }
   };
 
   const handleClearAllSelectedTasks = () => {
@@ -1089,6 +1161,10 @@ export default function DailyScrum() {
     if (visibleTasks.length === 1 && visibleTasks[0]?.status !== "TODO") {
       skipAutoSelectKeyRef.current = `${activeMember}::${scrumDate}::${visibleTasks[0]!.key}`;
     }
+
+    let capturedForm: ScrumForm | null = null;
+    let capturedSprintId: string | null = null;
+
     setForms((prev) => {
       const canonical = resolveScrumEntrySprintId([], assignedTasks, teamSprintId);
       const next = applyMemberTaskSelection(
@@ -1102,12 +1178,15 @@ export default function DailyScrum() {
       const persistSprintId =
         canonical || (assignedTasks.length > 0 ? teamSprintId : getMemberSprintFocus(activeMember));
       if (persistSprintId) {
-        const k = formKey(activeMember, persistSprintId);
-        const form = next[k] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
-        persistTaskSelection(form, persistSprintId);
+        capturedSprintId = persistSprintId;
+        capturedForm = next[formKey(activeMember, persistSprintId)] ?? buildFormFromHistory(scrumDate, activeMember, persistSprintId);
       }
       return next;
     });
+
+    if (capturedForm && capturedSprintId) {
+      persistTaskSelection(capturedForm, capturedSprintId);
+    }
   };
 
   const isToday = scrumDate === todayIso();

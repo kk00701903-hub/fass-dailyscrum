@@ -1,13 +1,13 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { KeyRound } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore, useMemo } from "react";
+import { KeyRound, Save, X } from "lucide-react";
 import { TEAM_MEMBERS } from "@/lib/index";
 import { memberAvatarStyle, ui } from "@/lib/design-system";
 import {
   getTeamMemberPrefs,
   hydrateTeamMemberPrefsFromSupabase,
-  setMemberAnalyticsIncluded,
-  setMemberScrumHistoryIncluded,
+  batchUpdateTeamMemberPrefs,
   TEAM_MEMBER_PREFS_EVENT,
+  type TeamMemberPrefs,
 } from "@/lib/team-member-preferences";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { AUTH_UI } from "@/lib/auth/ui-text";
@@ -29,6 +29,9 @@ export function TeamCompositionSettings() {
     loginId: string;
   } | null>(null);
 
+  const [draftPrefs, setDraftPrefs] = useState<TeamMemberPrefs | null>(null);
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     void hydrateTeamMemberPrefsFromSupabase();
   }, []);
@@ -41,6 +44,60 @@ export function TeamCompositionSettings() {
     getTeamMemberPrefs,
     getTeamMemberPrefs
   );
+
+  const effectivePrefs = draftPrefs ?? prefs;
+
+  const hasChanges = useMemo(() => {
+    if (!draftPrefs) return false;
+    return TEAM_MEMBERS.some(
+      (m) =>
+        prefs.scrumHistory[m.id] !== draftPrefs.scrumHistory[m.id] ||
+        prefs.analytics[m.id] !== draftPrefs.analytics[m.id]
+    );
+  }, [prefs, draftPrefs]);
+
+  const handleSave = async () => {
+    if (!draftPrefs) return;
+    setSaving(true);
+    try {
+      await batchUpdateTeamMemberPrefs(draftPrefs);
+      setDraftPrefs(null);
+    } catch (error) {
+      console.error("Failed to save team member preferences:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setDraftPrefs(null);
+  };
+
+  const handleToggleScrumHistory = (memberId: string, value: boolean) => {
+    setDraftPrefs((prev) => {
+      const base = prev ?? prefs;
+      return {
+        ...base,
+        scrumHistory: {
+          ...base.scrumHistory,
+          [memberId]: value,
+        },
+      };
+    });
+  };
+
+  const handleToggleAnalytics = (memberId: string, value: boolean) => {
+    setDraftPrefs((prev) => {
+      const base = prev ?? prefs;
+      return {
+        ...base,
+        analytics: {
+          ...base.analytics,
+          [memberId]: value,
+        },
+      };
+    });
+  };
 
   return (
     <div className="space-y-3">
@@ -66,8 +123,8 @@ export function TeamCompositionSettings() {
 
       <div className="space-y-2">
         {TEAM_MEMBERS.map((m) => {
-          const scrumValue = prefs.scrumHistory[m.id];
-          const analyticsValue = prefs.analytics[m.id];
+          const scrumValue = effectivePrefs.scrumHistory[m.id];
+          const analyticsValue = effectivePrefs.analytics[m.id];
           const scrumOn = m.id === "seo" ? scrumValue === true : scrumValue !== false;
           const analyticsOn = m.id === "seo" ? analyticsValue === true : analyticsValue !== false;
 
@@ -104,7 +161,7 @@ export function TeamCompositionSettings() {
               <label className="flex w-16 cursor-pointer items-center justify-center">
                 <Checkbox
                   checked={scrumOn}
-                  onCheckedChange={(v) => setMemberScrumHistoryIncluded(m.id, v === true)}
+                  onCheckedChange={(v) => handleToggleScrumHistory(m.id, v === true)}
                   aria-label={`${m.name} 스크럼 일지 조회`}
                 />
               </label>
@@ -112,7 +169,7 @@ export function TeamCompositionSettings() {
               <label className="flex w-16 cursor-pointer items-center justify-center">
                 <Checkbox
                   checked={analyticsOn}
-                  onCheckedChange={(v) => setMemberAnalyticsIncluded(m.id, v === true)}
+                  onCheckedChange={(v) => handleToggleAnalytics(m.id, v === true)}
                   aria-label={`${m.name} 애널리틱스 조회`}
                 />
               </label>
@@ -145,6 +202,32 @@ export function TeamCompositionSettings() {
           );
         })}
       </div>
+
+      {hasChanges && (
+        <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCancel}
+            disabled={saving}
+            className="gap-1.5"
+          >
+            <X className="h-3.5 w-3.5" />
+            취소
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            disabled={saving}
+            className="gap-1.5"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+        </div>
+      )}
 
       {resetTarget && adminLoginId ? (
         <TeamMemberPasswordResetDialog

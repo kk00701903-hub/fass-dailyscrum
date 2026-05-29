@@ -11,10 +11,13 @@ import JiraWbs from "@/pages/JiraWbs";
 import JiraDependencies from "@/pages/JiraDependencies";
 import DailyScrum from "@/pages/DailyScrum";
 import DailyScrumHistory from "@/pages/DailyScrumHistory";
+import ScrumDbLog from "@/pages/ScrumDbLog";
+import ScrumNotes from "@/pages/ScrumNotes";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import { ROUTES } from "@/lib/index";
 import { Toaster } from "@/components/ui/toaster";
+import { ChatWidget } from "@/components/ChatWidget";
 
 export default function App() {
   return (
@@ -34,12 +37,15 @@ export default function App() {
               <Route path={ROUTES.JIRA_DEPENDENCIES} element={<JiraDependencies />} />
               <Route path={ROUTES.DAILY_SCRUM} element={<DailyScrum />} />
               <Route path={ROUTES.SCRUM_HISTORY} element={<DailyScrumHistory />} />
+              <Route path={ROUTES.SCRUM_DB_LOG} element={<ScrumDbLog />} />
+              <Route path={ROUTES.SCRUM_NOTES} element={<ScrumNotes />} />
               <Route path={ROUTES.ANALYTICS} element={<Analytics />} />
               <Route path={ROUTES.SETTINGS} element={<Settings />} />
             </Route>
           </Route>
         </Routes>
         <Toaster />
+        <ChatWidget />
       </HashRouter>
     </MotionConfig>
   );

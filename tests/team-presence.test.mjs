@@ -89,7 +89,7 @@ describe("sidebar online count (TeamMembersPopover logic)", () => {
   it("counts only TEAM_MEMBERS that are in onlineMemberIds", () => {
     const online = parseOnlineMemberIds({ u1: [basePayload] });
     assert.equal(countOnlineTeamMembers(online), 1);
-    assert.equal(TEAM_MEMBERS.length, 7);
+    assert.equal(TEAM_MEMBERS.length, 8);
   });
 
   it("returns 0 when nobody is online", () => {

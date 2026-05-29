@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ClipboardList,
   Table2,
+  DatabaseZap,
   BarChart3,
   CalendarRange,
   Network,
@@ -14,6 +15,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  NotebookPen,
 } from "lucide-react";
 import { APP_LOGO_URL } from "@/lib/assets";
 import { AppErrorBoundary } from "@/components/ErrorFallback";
@@ -43,6 +45,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ChatWidget } from "@/components/ChatWidget";
 
 const NAV_ITEMS: { path: string; icon: React.ElementType; label: string; badge: string | null }[] = [
   { path: ROUTES.DAILY_SCRUM, icon: ClipboardList, label: "데일리 스크럼", badge: null },
@@ -50,6 +53,8 @@ const NAV_ITEMS: { path: string; icon: React.ElementType; label: string; badge: 
   { path: ROUTES.JIRA_WBS, icon: CalendarRange, label: "JIRA WBS", badge: null },
   { path: ROUTES.JIRA_DEPENDENCIES, icon: Network, label: "JIRA 의존성", badge: null },
   { path: ROUTES.ANALYTICS, icon: BarChart3, label: "애널리틱스", badge: null },
+  { path: ROUTES.SCRUM_NOTES, icon: NotebookPen, label: "스크럼 메모", badge: null },
+  { path: ROUTES.SCRUM_DB_LOG, icon: DatabaseZap, label: "입력 내역 조회", badge: null },
   { path: ROUTES.SETTINGS, icon: Settings, label: "설정", badge: null },
 ];
 
@@ -325,6 +330,7 @@ export function AppShell() {
     <TeamPresenceProvider>
       <SidebarProvider>
         <AppShellInner />
+        <ChatWidget />
       </SidebarProvider>
     </TeamPresenceProvider>
   );

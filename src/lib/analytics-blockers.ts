@@ -29,7 +29,7 @@ export function blockersFromScrumEntries(
   entries: ScrumEntry[],
   options?: { daysBack?: number }
 ): AnalyticsBlockerItem[] {
-  const daysBack = options?.daysBack ?? 14;
+  const daysBack = options?.daysBack ?? 3;
   const cutoff = cutoffDateString(daysBack);
   const items: AnalyticsBlockerItem[] = [];
 

@@ -97,6 +97,10 @@ export async function upsertDailyReport(payload: {
     onConflict: "member_id,report_date",
   });
 
+  // #region agent log
+  fetch('http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c89cc5'},body:JSON.stringify({sessionId:'c89cc5',location:'daily-reports-repository.ts:upsertDailyReport',message:'upsert result',data:{memberId:payload.memberId,hasError:!!error,errorMsg:error?.message??null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   if (!error) return;
 
   if (isUpsertConstraintError(error.message)) {

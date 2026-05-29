@@ -24,6 +24,7 @@ import {
 import { JiraWbsGanttMilestoneOverlay } from "@/components/JiraWbsGanttMilestoneOverlay";
 import { JiraWbsGanttMonthHeaderOverlay } from "@/components/JiraWbsGanttMonthHeaderOverlay";
 import { JiraWbsGanttWeekHeaderOverlay } from "@/components/JiraWbsGanttWeekHeaderOverlay";
+import { JiraWbsGanttProgressOverlay } from "@/components/JiraWbsGanttProgressOverlay";
 import {
   appendWbsTimelineEndPad,
   ganttTaskDisplayRows,
@@ -759,6 +760,16 @@ export function JiraWbsGanttView() {
                 />
               </>
             )}
+            <JiraWbsGanttProgressOverlay
+              rootRef={ganttRootRef}
+              displayTasks={displayGanttTasks}
+              metaByTaskId={metaByTaskId}
+              dates={timeline.dates}
+              columnWidth={columnWidth}
+              svgWidth={timeline.svgWidth}
+              ganttHeight={ganttHeight}
+              listWidth={LIST_WIDTH}
+            />
             <JiraWbsGanttMilestoneOverlay
               rootRef={ganttRootRef}
               guides={milestoneGuides}

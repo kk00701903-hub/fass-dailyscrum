@@ -232,3 +232,18 @@ export function getMembersForAnalytics(): TeamMember[] {
     return TEAM_MEMBERS.filter((m) => m.id !== "seo");
   }
 }
+
+export async function batchUpdateTeamMemberPrefs(newPrefs: TeamMemberPrefs): Promise<void> {
+  writePrefs(newPrefs);
+  if (!isSupabaseConfigured()) return;
+  
+  const updates = TEAM_MEMBERS.map((m) => 
+    upsertTeamMemberDisplayToDb(
+      m.id,
+      m.id === "seo" ? newPrefs.scrumHistory[m.id] === true : newPrefs.scrumHistory[m.id] !== false,
+      m.id === "seo" ? newPrefs.analytics[m.id] === true : newPrefs.analytics[m.id] !== false
+    )
+  );
+  
+  await Promise.all(updates);
+}

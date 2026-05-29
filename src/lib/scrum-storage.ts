@@ -238,6 +238,22 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
   const keys = payload.selectedTasks;
   const yesterdayByTask = pruneTaskTextMap(payload.yesterdayByTask ?? {}, keys);
   const todayByTask = pruneTaskTextMap(payload.todayByTask ?? {}, keys);
+
+  // 엄격한 validation: selectedTasks가 있으면 모든 태스크에 yesterday/today 필수
+  if (keys.length > 0) {
+    const missingYesterday = keys.filter(k => !(yesterdayByTask[k] ?? "").trim());
+    const missingToday = keys.filter(k => !(todayByTask[k] ?? "").trim());
+    if (missingYesterday.length > 0 || missingToday.length > 0) {
+      const errors: string[] = [];
+      if (missingYesterday.length > 0) {
+        errors.push(`전일 성과 미입력: ${missingYesterday.join(", ")}`);
+      }
+      if (missingToday.length > 0) {
+        errors.push(`오늘 계획 미입력: ${missingToday.join(", ")}`);
+      }
+      throw new Error(`저장 실패 - ${errors.join(" / ")}`);
+    }
+  }
   const yesterday = serializeTaskTexts(yesterdayByTask, keys);
   const today = serializeTaskTexts(todayByTask, keys);
 
@@ -257,7 +273,24 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
     todayByTask,
   });
 
-  if (isSupabaseConfigured()) {
+  let supabaseError: unknown = null;
+
+  // Supabase 저장 조건: yesterday와 today가 모두 비어있지 않을 때만
+  const hasYesterday = yesterday.trim().length > 0;
+  const hasToday = today.trim().length > 0;
+  const shouldSyncToSupabase = hasYesterday && hasToday;
+
+  if (!shouldSyncToSupabase) {
+    console.warn(
+      `[saveScrumEntry] Supabase 저장 건너뜀 - ${payload.date} ${payload.memberId}: ` +
+      `yesterday=${hasYesterday ? "있음" : "없음"}, today=${hasToday ? "있음" : "없음"}`
+    );
+  }
+
+  if (isSupabaseConfigured() && shouldSyncToSupabase) {
+    // #region agent log
+    fetch('http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c89cc5'},body:JSON.stringify({sessionId:'c89cc5',location:'scrum-storage.ts:saveScrumEntry',message:'Supabase save start',data:{memberId:payload.memberId,date:payload.date,sprintId:payload.sprintId,taskCount:keys.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     try {
       await upsertDailyReport({
         memberId: payload.memberId,
@@ -281,8 +314,12 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
       } else {
         await hydrateScrumHistoryFromSupabase();
       }
-    } catch {
-      /* local fallback */
+    } catch (err) {
+      console.error("[saveScrumEntry] Supabase save failed:", err);
+      // #region agent log
+      fetch('http://127.0.0.1:7436/ingest/f57db699-ba2a-4440-aed0-464c4fb46b81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c89cc5'},body:JSON.stringify({sessionId:'c89cc5',location:'scrum-storage.ts:saveScrumEntry:catch',message:'Supabase save FAILED',data:{memberId:payload.memberId,date:payload.date,error:err instanceof Error?err.message:String(err)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+      supabaseError = err;
     }
   }
 
@@ -290,6 +327,8 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
   list.push(entry);
   writeJson(ENTRIES_KEY, list);
   notifyDataChanged();
+
+  if (supabaseError) throw supabaseError;
   return entry;
 }
 
@@ -317,8 +356,10 @@ export function subscribeScrumEntries(onStoreChange: () => void): () => void {
 
 function notifyDataChanged(): void {
   scrumEntriesRevision += 1;
-  window.dispatchEvent(new Event("scrum-sprint-prefs-changed"));
-  window.dispatchEvent(new Event(SCRUM_ENTRIES_CHANGED_EVENT));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("scrum-sprint-prefs-changed"));
+    window.dispatchEvent(new Event(SCRUM_ENTRIES_CHANGED_EVENT));
+  }
 }
 
 export async function registerMemberSprint(
