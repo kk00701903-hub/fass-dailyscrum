@@ -121,4 +121,41 @@ describe("daily-scrum-save", () => {
     const sanitized = sanitizeSelectedTaskKeys(["FWK-215", "FWK-217", "FWK-66"], []);
     assert.deepEqual(sanitized, [], `JIRA 미로드 시 키가 남아 있음: ${sanitized.join(", ")}`);
   });
+
+  // ── 이슈 선택만 하고 텍스트 없는 경우 (persistTaskSelection 경로) ───────────
+
+  it("saveScrumEntry: yesterday/today 비어 있어도 이슈 선택만으로 throw하지 않음", async () => {
+    // 이슈를 클릭하여 선택만 한 경우 — persistTaskSelection이 content 없이 호출함
+    // saveScrumEntry에서 validation throw 없이 정상 반환되어야 함
+    const entry = await saveScrumEntry({
+      date: "2026-06-01",
+      sprintId: "sprint-10",
+      memberId: "kim",
+      blockers: "없음",
+      selectedTasks: ["FWK-218"],
+      yesterdayByTask: {},
+      todayByTask: {},
+    });
+    assert.equal(entry.memberId, "kim");
+    assert.deepEqual(entry.selectedTasks, ["FWK-218"]);
+    // content 없으면 직렬화 결과는 빈 문자열
+    assert.equal(entry.yesterday, "");
+    assert.equal(entry.today, "");
+  });
+
+  it("saveScrumEntry: 이슈 선택 + 일부 텍스트만 있어도 throw하지 않음", async () => {
+    // yesterday만 입력하고 today는 아직 입력 안 한 중간 상태
+    const entry = await saveScrumEntry({
+      date: "2026-06-01",
+      sprintId: "sprint-10",
+      memberId: "song",
+      blockers: "없음",
+      selectedTasks: ["FWK-217"],
+      yesterdayByTask: { "FWK-217": "전일 작업 완료" },
+      todayByTask: {},
+    });
+    assert.equal(entry.memberId, "song");
+    assert.ok(entry.yesterday.includes("전일 작업 완료"), `yesterday 누락: ${entry.yesterday}`);
+    assert.equal(entry.today, "");
+  });
 });

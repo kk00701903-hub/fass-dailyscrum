@@ -239,21 +239,7 @@ export async function saveScrumEntry(payload: SaveScrumEntryPayload): Promise<Sc
   const yesterdayByTask = pruneTaskTextMap(payload.yesterdayByTask ?? {}, keys);
   const todayByTask = pruneTaskTextMap(payload.todayByTask ?? {}, keys);
 
-  // 엄격한 validation: selectedTasks가 있으면 모든 태스크에 yesterday/today 필수
-  if (keys.length > 0) {
-    const missingYesterday = keys.filter(k => !(yesterdayByTask[k] ?? "").trim());
-    const missingToday = keys.filter(k => !(todayByTask[k] ?? "").trim());
-    if (missingYesterday.length > 0 || missingToday.length > 0) {
-      const errors: string[] = [];
-      if (missingYesterday.length > 0) {
-        errors.push(`전일 성과 미입력: ${missingYesterday.join(", ")}`);
-      }
-      if (missingToday.length > 0) {
-        errors.push(`오늘 계획 미입력: ${missingToday.join(", ")}`);
-      }
-      throw new Error(`저장 실패 - ${errors.join(" / ")}`);
-    }
-  }
+
   const yesterday = serializeTaskTexts(yesterdayByTask, keys);
   const today = serializeTaskTexts(todayByTask, keys);
 

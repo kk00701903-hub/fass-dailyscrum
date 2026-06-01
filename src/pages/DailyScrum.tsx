@@ -355,6 +355,12 @@ export default function DailyScrum() {
   const [forms, setForms] = useState<Record<string, ScrumForm>>(() => buildAllForms(todayIso()));
   const [saved, setSaved] = useState<Record<string, boolean>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
+  // 저장 오류 메시지 5초 후 자동 소멸 (저장 버튼 클릭 시에만 표시되도록)
+  useEffect(() => {
+    if (!saveError) return;
+    const t = setTimeout(() => setSaveError(null), 5000);
+    return () => clearTimeout(t);
+  }, [saveError]);
   const [yesterdayCarryoverHint, setYesterdayCarryoverHint] = useState<string | null>(null);
   const [planCarryoverHint, setPlanCarryoverHint] = useState<string | null>(null);
   const [blockersCarryoverHint, setBlockersCarryoverHint] = useState<string | null>(null);
