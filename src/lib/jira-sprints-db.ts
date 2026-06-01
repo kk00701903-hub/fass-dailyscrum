@@ -21,6 +21,7 @@ function isMissingColumnError(message: string): boolean {
 
 function toBasicPayload(rows: JiraSprintUpsertRow[], now: string) {
   return rows.map((r) => ({
+    id: r.id,
     sprint_name: r.sprint_name,
     status: r.status,
     remaining_days: r.remaining_days,
@@ -30,6 +31,7 @@ function toBasicPayload(rows: JiraSprintUpsertRow[], now: string) {
 
 function toFullPayload(rows: JiraSprintUpsertRow[], now: string) {
   return rows.map((r) => ({
+    id: r.id,
     sprint_name: r.sprint_name,
     status: r.status,
     remaining_days: r.remaining_days,

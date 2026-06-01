@@ -417,7 +417,6 @@ export default function DailyScrum() {
   useEffect(() => {
     if (scrumDate < todayIso()) return;
 
-
     const history = getAllScrumHistory();
     const teamId = getTeamActiveSprintId();
     const inProgress = getInProgressSprints();
@@ -666,35 +665,33 @@ export default function DailyScrum() {
         );
 
         // 담당 이슈 2개 이상인 멤버는, 저장된 entry에 실제 입력 텍스트가 없으면
-        // (캐리오버만 된 항목) selectedTasks 를 복원하지 않는다.
-        // liveKeys 경로도 포함해 모든 복원 경로를 차단한다.
+        // DB/캐리오버 경로에서 selectedTasks를 복원하지 않는다.
+        // 단, 사용자가 이미 직접 선택한 경우(liveKeys)는 항상 존중한다.
         const entryHasText =
           (entry?.yesterday ?? "").trim().length > 0 ||
           (entry?.today ?? "").trim().length > 0;
         const canRestoreEntryTasks =
           assignedTasks.length <= 1 || entryHasText;
 
-        // prev 기준 live 선택을 우선 사용 — async 완료 시 유저가 이미 태스크를 선택/해제했을 수
-        // 있으므로, stale 클로저인 entry.selectedTasks 보다 현재 폼 상태를 우선시한다.
-        // 단, canRestoreEntryTasks 가 false 이면 liveKeys 포함 모든 경로를 차단한다.
-        const liveKeys = canRestoreEntryTasks
-          ? collectMergedSelectedTasks(
-              prev,
-              activeMember,
-              panelSprintIds,
-              teamSprintId,
-              allowedTaskKeys
-            )
-          : [];
-        const selectedKeys = canRestoreEntryTasks
-          ? (liveKeys.length > 0
-              ? liveKeys
-              : (entry?.selectedTasks.length ?? 0) > 0
-                ? entry!.selectedTasks
-                : dbKeys.length > 0
-                  ? dbKeys
-                  : cur.selectedTasks)
-          : [];
+        // liveKeys: 현재 폼 상태의 선택값 — 사용자 수동 선택이므로 항상 수집한다.
+        // canRestoreEntryTasks 여부와 무관하게 liveKeys가 있으면 그것을 우선한다.
+        const liveKeys = collectMergedSelectedTasks(
+          prev,
+          activeMember,
+          panelSprintIds,
+          teamSprintId,
+          allowedTaskKeys
+        );
+        const selectedKeys =
+          liveKeys.length > 0
+            ? liveKeys  // 사용자 수동 선택 최우선
+            : canRestoreEntryTasks
+              ? ((entry?.selectedTasks.length ?? 0) > 0
+                  ? entry!.selectedTasks
+                  : dbKeys.length > 0
+                    ? dbKeys
+                    : cur.selectedTasks)
+              : [];  // 텍스트 없고 2개 이상: DB/캐리오버 복원 차단
 
         if (selectedKeys.length === 0) {
           return {

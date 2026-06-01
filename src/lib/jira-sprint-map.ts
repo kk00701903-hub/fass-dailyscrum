@@ -15,6 +15,7 @@ export interface JiraSprintApiValue {
 }
 
 export interface JiraSprintUpsertRow {
+  id: string;
   sprint_name: string;
   status: string;
   remaining_days: number;
@@ -43,11 +44,13 @@ function sliceDate(iso?: string): string | null {
 }
 
 export function mapApiSprintToUpsertRow(sp: JiraSprintApiValue): JiraSprintUpsertRow {
+  const sprintId = toJiraSprintLinkId(sp.id);
   return {
+    id: sprintId,
     sprint_name: sp.name,
     status: statusLabel(sp.state),
     remaining_days: remainingDays(sp.endDate),
-    jira_sprint_id: toJiraSprintLinkId(sp.id),
+    jira_sprint_id: sprintId,
     start_date: sliceDate(sp.startDate),
     end_date: sliceDate(sp.endDate),
   };

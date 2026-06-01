@@ -308,6 +308,7 @@ Deno.serve(async (req) => {
     const byName = new Map<
       string,
       {
+        id: string;
         sprint_name: string;
         status: string;
         remaining_days: number;
@@ -319,6 +320,7 @@ Deno.serve(async (req) => {
     for (const sp of sprintPages) {
       if (!sp.name?.trim()) continue;
       byName.set(sp.name, {
+        id: `jira-sprint-${sp.id}`,
         sprint_name: sp.name,
         status: statusLabel(sp.state),
         remaining_days: remainingDays(sp.endDate),
@@ -439,7 +441,12 @@ Deno.serve(async (req) => {
       mode: "jira_issue_id_upsert",
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg =
+      e instanceof Error
+        ? e.message
+        : typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : JSON.stringify(e);
     return json({ error: msg }, 500);
   }
 });
