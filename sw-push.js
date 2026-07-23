@@ -7,7 +7,7 @@
  * 배포 루트에 복사됨 (public/sw-push.js → /fass-dailyscrum/sw-push.js)
  */
 
-const CACHE_VERSION = "fass-scrum-v1";
+const CACHE_VERSION = "fass-scrum-v2";
 // SW 위치 기준 앱 베이스 경로 (예: /fass-dailyscrum/)
 const BASE_PATH = new URL("./", self.location).pathname;
 const APP_SHELL = [BASE_PATH, `${BASE_PATH}index.html`, `${BASE_PATH}logo.png`];
